@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "com.settlemesh/cli",
-  "description": "Deploy and monetize agent-built apps. One key lets an agent search the tool catalog and invoke any capability (web search/scrape, LLMs, image/video generation, managed SQL database, hosted agents), with usage-based billing and end-user-pays (X-Settle-Payer) so AI apps can charge users per call without building billing.",
+  "name": "io.settlemesh/cli",
+  "description": "Deploy and monetize agent-built apps: login, database, usage billing, and end-user-pays.",
   "repository": {
     "url": "https://github.com/StructureIntelligence/settlemesh",
     "source": "github"
   },
-  "version": "0.1.71",
+  "version": "0.1.73",
   "websiteUrl": "https://settlemesh.io",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "settlemesh",
-      "version": "0.1.71",
+      "version": "0.1.73",
       "transport": {
         "type": "stdio"
       },
