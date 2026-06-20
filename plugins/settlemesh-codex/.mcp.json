@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "settlemesh": {
+      "command": "npx",
+      "args": ["-y", "settlemesh", "mcp"]
+    }
+  }
+}

@@ -29,18 +29,30 @@ claude mcp add settlemesh --env SETTLE_API_KEY=sk-settle-... -- npx -y settlemes
 | Path | What |
 |---|---|
 | [`server.json`](./server.json) · `smithery.yaml` · `glama.json` | MCP registry metadata |
-| [`claude-plugin/`](./claude-plugin) | Claude Code plugin (marketplace + plugin + skill + `/deploy` command) |
-| [`cursor/`](./cursor) | Cursor rule + MCP config |
+| [`.claude-plugin/`](./.claude-plugin) · [`plugins/settlemesh/`](./plugins/settlemesh) | Claude Code marketplace + plugin (skill + `/deploy` command + MCP) |
+| [`.cursor-plugin/`](./.cursor-plugin) · [`plugins/settlemesh-cursor/`](./plugins/settlemesh-cursor) | Cursor marketplace + plugin (rule + skill + MCP) |
+| [`.agents/plugins/`](./.agents/plugins) · [`plugins/settlemesh-codex/`](./plugins/settlemesh-codex) | Codex marketplace + plugin (skill + MCP) |
+| [`cursor/`](./cursor) | Standalone Cursor rule + MCP config (manual add) |
 | [`agent.md`](./agent.md) | The agent contract (also served at https://settlemesh.io/agent.md) |
 | [`llms.txt`](./llms.txt) | AEO discovery file |
 | [`templates/`](./templates) | 5 starter templates (MIT) |
 
-## Install the Claude Code plugin
+## Install (one repo, every agent)
+
+**Claude Code**
 
 ```
 /plugin marketplace add StructureIntelligence/settlemesh
 /plugin install settlemesh@settlemesh
 ```
+
+**Cursor** — install from the in-app plugin marketplace (search "SettleMesh"), or one-click the
+[Add to Cursor](https://settlemesh.io/docs) MCP badge.
+
+**Codex** — add this repo as a plugin marketplace (by git URL `StructureIntelligence/settlemesh`),
+then install `settlemesh` from `/plugins`.
+
+**Any MCP client** (Claude Desktop, Cline, …) — see [`llms-install.md`](./llms-install.md).
 
 ## Links
 

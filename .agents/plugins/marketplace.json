@@ -1,0 +1,20 @@
+{
+  "name": "settlemesh",
+  "interface": {
+    "displayName": "SettleMesh"
+  },
+  "plugins": [
+    {
+      "name": "settlemesh",
+      "source": {
+        "source": "local",
+        "path": "./plugins/settlemesh-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

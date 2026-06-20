@@ -1,0 +1,18 @@
+{
+  "name": "settlemesh",
+  "displayName": "SettleMesh",
+  "version": "0.1.0",
+  "description": "Deploy and monetize an agent-built app in one command — SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments. Bundles the SettleMesh MCP server so the agent can search and invoke the full capability catalog (web search/scrape, LLMs, image/video, managed SQL, hosted agents).",
+  "author": {
+    "name": "StructureIntelligence Inc.",
+    "url": "https://settlemesh.io"
+  },
+  "homepage": "https://settlemesh.io",
+  "repository": "https://github.com/StructureIntelligence/settlemesh",
+  "license": "Apache-2.0",
+  "category": "Payments",
+  "keywords": ["settlemesh", "deploy", "billing", "payments", "end-user-pays", "mcp", "agent"],
+  "mcpServers": "./mcp.json",
+  "rules": "./rules",
+  "skills": "./skills"
+}
