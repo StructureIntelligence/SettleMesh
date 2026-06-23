@@ -113,6 +113,25 @@ settlemesh tool call video.veo-3.1 --input '{"prompt":"a glass city at sunrise, 
 
 Use `--wait` for async jobs and `--confirm` for costly or side-effecting calls. Always parse JSON defensively. Result URLs or payloads may appear in `data.result`, `data.results`, `data.output`, `output`, `url`, `urls`, or nested arrays/objects.
 
+### Async jobs — poll the *per-model* detail capability (don't guess it)
+
+Media generation is async: the submit capability returns only a **job id**; the actual result lives behind a separate **detail capability** you poll. The detail id is **per model**, and you must not invent it:
+
+- **Video detail ids are per-model:** `video.veo-3.1` → `video.veo-3.1.detail`, `video.sora2-new` → `video.sora2-new.detail`, `video.doubao-seedance-2.0` → `video.doubao-seedance-2.0.detail`.
+- **Images are the exception — one shared `image.task.detail`** for every image model (`image.gpt-image-2`, `image.nanobanana2`, …).
+- **Never guess `video.task.detail` — it does not exist.** Generalizing the shared image detail to video is the #1 integration mistake.
+- **The authoritative poll id is always in the submit capability's spec at `output.next[0].tool_id`.** Read it with `settlemesh tool show <submit-id> --json` or `GET /v1/tools/<submit-id>`; the poll input key is **`id`** (not `task_id`). Or just add `--wait` and let the CLI poll for you — **if you call over raw HTTP and won't read the spec, prefer `--wait`/server-side waiting over hardcoding a detail id.**
+
+```bash
+# One-shot (CLI polls for you):
+settlemesh tool call video.veo-3.1 --input '{"prompt":"a glass city, aerial push-in"}' --wait --json
+
+# Manual HTTP: submit → read output.next → poll the detail capability with {"id": <task-id>}
+#   POST /v1/capabilities/video.veo-3.1/invoke            → { ...task_id... }
+#   GET  /v1/tools/video.veo-3.1                          → output.next[0].tool_id == "video.veo-3.1.detail"
+#   POST /v1/capabilities/video.veo-3.1.detail/invoke     {"input":{"id":"<task-id>"}}  → poll until result URLs appear
+```
+
 ## Aev And Cost
 
 One Aev balance pays for calls. Check it and top up before long runs (`aev` is the current command; older CLI builds use `credits` — both work on a current install):
