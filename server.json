@@ -6,14 +6,14 @@
     "url": "https://github.com/StructureIntelligence/settlemesh",
     "source": "github"
   },
-  "version": "0.1.91",
+  "version": "0.1.92",
   "websiteUrl": "https://settlemesh.io",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "settlemesh",
-      "version": "0.1.91",
+      "version": "0.1.92",
       "transport": {
         "type": "stdio"
       },
