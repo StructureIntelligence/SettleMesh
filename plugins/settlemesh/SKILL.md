@@ -10,8 +10,10 @@ SettleMesh turns an app into a paid product in one command: SettleMesh OAuth log
 ## Setup (once)
 
 1. `npm install -g settlemesh@latest`
-2. `settlemesh login` (a human approves in the browser) — or set `SETTLE_API_KEY=sk-settle-...` for headless/CI.
+2. `settlemesh login` (a human approves once in the browser) — or set `SETTLE_API_KEY=sk-settle-...` for headless/CI.
 3. The full agent contract lives at `https://settlemesh.io/agent.md` — fetch it for the complete recipe set, then `settlemesh recipes` for the shortest path to any task.
+
+**No funding needed to start:** your first call to each official capability is free (and refunded if it fails), so you can try the whole catalog before adding any credit. A free first call returns an `X-Settle-Billing-Notice` header noting that repeat calls are billed — so call 2 is never a surprise.
 
 ## Core rule
 
@@ -37,7 +39,7 @@ settlemesh tool show <tool-id> --json
 settlemesh tool call <tool-id> --input '{...}' --json   # --wait for async, --confirm for paid
 ```
 
-Billing unit: **Aev** (1 USD = 100 Aev), funded via Stripe. Check balance with `settlemesh credits balance --json`.
+Billing unit: **Aev** (1 USD = 100 Aev), funded via Stripe — needed only once you go past the free first call of each capability. Check balance with `settlemesh credits balance --json`.
 
 ## MCP
 
