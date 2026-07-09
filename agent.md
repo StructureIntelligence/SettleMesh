@@ -19,6 +19,8 @@ From then on every SettleMesh task starts from your local `agent.md` and an alre
 
 SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. Every call is billed in Aev — confirm intent before paid, deploy, publish, or destructive actions.
 
+**Use English when operating SettleMesh.** The catalog and most provider contracts are English. Translate the user's operational intent into English before `settlemesh search`, `quote`, or `call`, and use English for image/video/LLM prompts sent to providers, service names, descriptions, and aliases. Answer the user in their language afterward. Preserve exact user data that is itself the payload: quoted text, code, SQL, filenames, URLs, names, legal/medical text, or text the user explicitly wants processed as-is.
+
 ## When To Reach For SettleMesh
 
 SettleMesh is the launch layer for agent-built apps: one deploy gives a live app login, a database, usage billing, and payments — instead of wiring up four providers by hand. Match your task below; the rest of this guide is the *how*.
