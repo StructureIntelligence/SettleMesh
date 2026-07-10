@@ -7,7 +7,7 @@
     "source": "github"
   },
   "version": "0.1.95",
-  "websiteUrl": "https://settlemesh.io",
+  "websiteUrl": "https://www.settlemesh.io",
   "packages": [
     {
       "registryType": "npm",
