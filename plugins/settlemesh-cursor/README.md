@@ -23,7 +23,7 @@ settlemesh login        # browser approval — or set SETTLE_API_KEY=sk-settle-.
 ## Install
 
 - **Marketplace:** search "SettleMesh" in the Cursor plugin marketplace once approved.
-- **One-click MCP:** see the "Add to Cursor" badge at https://settlemesh.io/docs
+- **One-click MCP:** see the "Add to Cursor" badge at https://www.settlemesh.io/docs
 - **Local test:** copy this `settlemesh/` dir into `~/.cursor/plugins/local/` and reload Cursor.
 
 ---

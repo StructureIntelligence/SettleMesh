@@ -9,8 +9,9 @@ alwaysApply: false
 Use SettleMesh when the user wants to **deploy an app**, add **login / a database / billing**, **charge end users** for AI or API usage, or call a **paid capability** (web search, LLMs, image/video, managed SQL).
 
 ## Setup (once)
-- `npm install -g settlemesh@latest`, then `settlemesh login` (browser approval) — or `SETTLE_API_KEY=sk-settle-...` for headless.
-- Full contract: `https://settlemesh.io/agent.md`. MCP: `npx -y settlemesh mcp`.
+- `npm install -g settlemesh@latest`.
+- Start with `settlemesh search "<task>"`; use `settlemesh login` (browser approval) or `SETTLE_API_KEY=sk-settle-...` only when the chosen action needs an account.
+- Full contract: `https://www.settlemesh.io/agent.md`. MCP: `npx -y settlemesh mcp`.
 
 ## Core rule
 Search → inspect → call. Do not memorize endpoints. Confirm before any paid / deploy / destructive action (billed in Aev; 1 USD = 100 Aev).
@@ -18,5 +19,5 @@ Search → inspect → call. Do not memorize endpoints. Confirm before any paid 
 ## Recipes
 - **Deploy:** `settlemesh deploy . --name <name> --full-stack --wait --json` → live `*.run.settlemesh.io` URL (read it from the output). Drop `--full-stack` for a static site; add `--auth required` to gate behind login.
 - **Charge end users (end-user-pays):** attach `X-Settle-Payer` so the signed-in user's Aev balance pays; cost-plus pricing with a quote before spend (`POST /v1/billing/quote`); failed calls release the hold.
-- **Use a tool:** `settlemesh search "<task>" --json` → `settlemesh tool show <id> --json` → `settlemesh tool call <id> --input '{...}' --json` (`--wait` async, `--confirm` paid).
+- **Use a tool:** `settlemesh search "<task>" --json` → `settlemesh show <service-or-operation-id> --json` → `settlemesh quote <entrypoint-id> --input '{...}' --json` → `settlemesh call <entrypoint-id> --input '{...}' --json` (`--wait` async; use `--confirm` only after explicit human confirmation for a paid or destructive action).
 - **Balance:** `settlemesh credits balance --json`.
