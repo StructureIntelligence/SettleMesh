@@ -1,22 +1,32 @@
 {
   "name": "settlemesh",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Deploy and monetize an agent-built app in one command — SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments. Bundles the SettleMesh MCP server (search + invoke the full capability catalog).",
+  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "SettleMesh",
+    "developerName": "StructureIntelligence Inc.",
     "category": "Developer Tools",
     "shortDescription": "Deploy and monetize agent-built apps: login, database, usage billing, end-user payments.",
     "longDescription": "SettleMesh turns an agent-written app into a live, paid product in one command (settlemesh deploy --full-stack): managed OAuth login, a managed database, usage-based metered billing, and end-user payments (the signed-in user's own balance pays). Also a capability catalog over MCP/CLI — web search/scrape, LLMs, image/video, managed SQL, hosted agents — every call metered with a quote up front.",
-    "websiteURL": "https://settlemesh.io",
-    "privacyPolicyURL": "https://settlemesh.io/privacy",
+    "capabilities": ["App deployment", "Authentication", "Database", "Usage billing", "MCP tools"],
+    "websiteURL": "https://www.settlemesh.io/",
+    "privacyPolicyURL": "https://www.settlemesh.io/privacy",
+    "termsOfServiceURL": "https://www.settlemesh.io/terms",
+    "defaultPrompt": [
+      "Deploy this app with SettleMesh, including login, a database, and usage billing.",
+      "Show me the SettleMesh capabilities for this task and quote any paid action first.",
+      "Turn this agent-built app into a paid product with end-user billing."
+    ],
     "logo": "./assets/logo.png"
   },
   "author": {
     "name": "StructureIntelligence Inc.",
-    "url": "https://settlemesh.io"
+    "email": "support@settlemesh.io",
+    "url": "https://www.settlemesh.io/"
   },
-  "homepage": "https://settlemesh.io",
+  "homepage": "https://www.settlemesh.io/",
   "repository": "https://github.com/StructureIntelligence/settlemesh",
   "license": "Apache-2.0",
   "keywords": ["settlemesh", "deploy", "billing", "payments", "end-user-pays", "mcp", "agent"]
