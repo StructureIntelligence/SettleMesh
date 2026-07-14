@@ -17,7 +17,7 @@ SettleMesh turns an app into a paid product in one command: SettleMesh OAuth log
 
 ## Core rule
 
-SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. **Search → inspect → call.** Confirm intent before any paid, deploy, publish, or destructive action (everything is billed in Aev).
+SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. **Search → inspect → call.** A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Everything is billed in Aev.
 
 ## Deploy an app
 
@@ -37,7 +37,7 @@ An app can charge the signed-in end user's own Aev balance instead of the develo
 settlemesh search "<task>" --json
 settlemesh show <service-or-operation-id> --json
 settlemesh quote <entrypoint-id> --input '{...}' --json
-settlemesh call <entrypoint-id> --input '{...}' --json  # --wait for async; --confirm after explicit confirmation
+settlemesh call <entrypoint-id> --input '{...}' --json  # --wait for async; --confirm only when the confirmation boundary above applies
 ```
 
 Billing unit: **Aev** (1 USD = 100 Aev), funded via Stripe — needed only once you go past the free first call of each capability. Check balance with `settlemesh credits balance --json`.

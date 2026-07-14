@@ -14,10 +14,10 @@ Use SettleMesh when the user wants to **deploy an app**, add **login / a databas
 - Full contract: `https://www.settlemesh.io/agent.md`. MCP: `npx -y settlemesh mcp`.
 
 ## Core rule
-Search → inspect → call. Do not memorize endpoints. Confirm before any paid / deploy / destructive action (billed in Aev; 1 USD = 100 Aev).
+Search → inspect → call. Do not memorize endpoints. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Everything is billed in Aev; 1 USD = 100 Aev.
 
 ## Recipes
 - **Deploy:** `settlemesh deploy . --name <name> --full-stack --wait --json` → live `*.run.settlemesh.io` URL (read it from the output). Drop `--full-stack` for a static site; add `--auth required` to gate behind login.
 - **Charge end users (end-user-pays):** attach `X-Settle-Payer` so the signed-in user's Aev balance pays; cost-plus pricing with a quote before spend (`POST /v1/billing/quote`); failed calls release the hold.
-- **Use a tool:** `settlemesh search "<task>" --json` → `settlemesh show <service-or-operation-id> --json` → `settlemesh quote <entrypoint-id> --input '{...}' --json` → `settlemesh call <entrypoint-id> --input '{...}' --json` (`--wait` async; use `--confirm` only after explicit human confirmation for a paid or destructive action).
+- **Use a tool:** `settlemesh search "<task>" --json` → `settlemesh show <service-or-operation-id> --json` → `settlemesh quote <entrypoint-id> --input '{...}' --json` → `settlemesh call <entrypoint-id> --input '{...}' --json` (`--wait` async; use `--confirm` only when the confirmation boundary above applies).
 - **Balance:** `settlemesh credits balance --json`.
