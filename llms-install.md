@@ -21,7 +21,7 @@ The SettleMesh MCP server is a published npm package that runs over **stdio** â€
 - Or, instead of the env var, run `npm i -g settlemesh && settlemesh login` once (browser approval); the server reuses the stored session.
 
 ## What it does
-`npx -y settlemesh mcp` runs the SettleMesh capability-invoke MCP server: search the SettleMesh catalog and invoke any tool (web search/scrape, LLMs, image/video generation, managed SQL, hosted agents), with a confirm step before any paid call. One key also lets an agent deploy + monetize an app (login, database, usage billing, end-user-pays).
+`npx -y settlemesh mcp` runs the SettleMesh capability-invoke MCP server: discover with search, inspect with show, request an input-aware quote, then call the selected entrypoint. The canonical HTTP invoke path is `POST /v1/capabilities/{id}/invoke`; `POST /v1/tools/{id}/call` is a compatibility alias only. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue. Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available. An authenticated account can also deploy an app with login, database, usage billing, and end-user-pays.
 
 ## Verify
 - The package is published on npm as `settlemesh` and listed in the official MCP Registry as `io.settlemesh/cli`.

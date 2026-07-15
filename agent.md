@@ -2,7 +2,7 @@
 
 Read this before using SettleMesh from Codex, Cursor, Claude Code, CI, or another agent runtime.
 
-> **Step 0 — log in before anything else: `settlemesh login`.** Right after installing (`npm install -g settlemesh@latest`), authenticate FIRST — a human approves once in the browser and the session is reused. You CAN `settlemesh search` the catalog anonymously to discover what's available, but **calling a paid tool, deploying, publishing, generating an image/video, lending compute, or anything that bills requires login** (or `SETTLE_API_KEY`); such a call otherwise fails with `run settlemesh login`. After login the CLI prints a short list of what SettleMesh can do — or run `settlemesh recipes` any time.
+> **Step 0 — discover first: `settlemesh search`.** Right after installing (`npm install -g settlemesh@latest`), use the public catalog to learn what is actually available before authenticating or guessing. **Calling a paid tool, deploying, publishing, generating an image/video, lending compute, or anything that bills requires login** (or `SETTLE_API_KEY`); such a call otherwise says `run settlemesh login`. Complete browser sign-in to authorize this CLI once, then the session is reused. Run `settlemesh recipes` any time for the shortest supported path.
 
 ## First Time: Localize This Guide (do this once)
 
@@ -10,14 +10,14 @@ If you are an agent reading this for the first time:
 
 1. Save this file into the project as `agent.md` — run `settlemesh agent-md --save`, or fetch `https://api.settlemesh.io/agent.md` (the same `api.` host you call at runtime).
 2. Create a skill / rule in your runtime that says: **"For any SettleMesh task, read `./agent.md` first."** (Claude Code: a skill; Cursor: a rule; Codex/CI: a line in your project instructions.)
-3. Authenticate once: run `settlemesh login` — a human approves in the browser. The CLI then reuses the stored session; no further login is needed.
+3. When the next action requires an account, authenticate once: run `settlemesh login` and complete browser sign-in to authorize this CLI. The CLI then reuses the stored session; no further login is needed.
 4. Print the shortest reliable path for any task with `settlemesh recipes`.
 
-From then on every SettleMesh task starts from your local `agent.md` and an already-authenticated CLI — no re-deriving how the platform works.
+From then on every SettleMesh task starts from your local `agent.md`; use anonymous discovery when sufficient and the already-authenticated CLI only when an account-required action is next — no re-deriving how the platform works.
 
 ## Core Rule
 
-SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. Every call is billed in Aev — confirm intent before paid, deploy, publish, or destructive actions.
+SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Ordinary paid calls settle applicable Aev automatically, and a passing mechanical publish does not enter a human review, payment, or release queue. A user's first request like "delete X" is intent, not confirmation. Do not add `--confirm` / `?confirm=true` for destructive actions until a separate human confirmation turn names the exact resource and effect. First identify the target, show what would happen, and stop. If the target is missing or already absent, report that result without using `--confirm`. **Exception fixed by Frame/use/friend:** `friend remove/block` and `group remove/leave` are reversible coordination, so an authenticated direct request is sufficient and must not be interrupted by a second confirmation.
 
 **Use English when operating SettleMesh.** The catalog and most provider contracts are English. Translate the user's operational intent into English before `settlemesh search`, `quote`, or `call`, and use English for image/video/LLM prompts sent to providers, service names, descriptions, and aliases. Answer the user in their language afterward. Preserve exact user data that is itself the payload: quoted text, code, SQL, filenames, URLs, names, legal/medical text, or text the user explicitly wants processed as-is.
 

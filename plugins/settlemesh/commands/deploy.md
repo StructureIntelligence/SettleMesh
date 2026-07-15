@@ -15,4 +15,4 @@ Steps:
 3. Read the live `*.run.settlemesh.io` URL from the deploy output and report it to the user.
 4. If the user wants the app to charge its end users, explain end-user-pays: the app attaches `X-Settle-Payer` so each call is billed to the signed-in user's Aev balance, with a quote before spend.
 
-Always confirm before the deploy (it is a paid, side-effecting action). If `--wait` times out, the build may still be running — poll `settlemesh deploy status <app-id> --json` rather than concluding failure.
+A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Mechanical protocol checks publish automatically after they pass. If `--wait` times out, the build may still be running — poll `settlemesh deploy status <app-id> --json` rather than concluding failure.
