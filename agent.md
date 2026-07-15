@@ -30,7 +30,7 @@ SettleMesh is the launch layer for agent-built apps: one deploy can provide app 
 
 - **You need to call a paid API** (LLM, web search, image/video generation, scraping, finance, …) → search one catalog and call it with one key, metered in one unit (Aev; 1 USD = 100 Aev). Use the live quote to determine whether this call is free or paid; do not assume a first-call promotion.
 - **Your app makes paid calls on an end user's behalf** → send the `X-Settle-Payer` header so the *user's* wallet is charged for the compute they trigger, not yours. You can add a markup on top of cost.
-- **You're shipping a web app real people will use** → `settlemesh deploy` provisions SettleMesh login (OIDC), a managed SQL database, hosted runtime, and metered billing in one command, then returns the stable live URL in `data.url` (query it later with `settlemesh deploy url <app-id>`).
+- **You're preparing a web app for SettleMesh delivery** → start with `settlemesh deploy preflight . --full-stack --json`. The owner CLI is the intended source-deploy entrypoint, but deployment authorization is currently unavailable and fails closed with `deployment_authorization_unavailable` before upload, build, payment, or publication. Existing app records remain observable with the status, logs, and URL commands below.
 - **You need managed auth + a database** without standing up Auth0 / Supabase / Postgres → declare `stack.auth` + `stack.database`; no third-party accounts to create.
 - **You're chaining agent → agent → tool** → invoke another hosted agent, worker, or service by its id through the same one `/v1/capabilities/<id>/invoke` path; each cross-owner hop is billed down the chain automatically.
 - **You want to publish an agent / app API / command for others to call** → it enters the searchable catalog, metered per call, with per-app spend caps the user can revoke.
@@ -212,12 +212,30 @@ curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: applic
 
 ## Build And Deploy An App
 
-SettleMesh is not a template generator — but the managed full-stack build pipeline currently targets **Next.js** (the app is built with OpenNext for Cloudflare). Build a Next.js app, then add generic SettleMesh guardrails:
+**Current availability:** deployment authorization is unavailable. The intended source-deploy entrypoint is the owner CLI, not a browser uploader, but a deploy request currently returns `deployment_authorization_unavailable` and fails closed before source upload, build, payment, or publication. Do not report a candidate, preview, charge, or live URL from that denial.
+
+Start with the authenticated, read-only preflight:
 
 ```bash
 settlemesh apps doctor . --fix
-settlemesh deploy . --name my-app --full-stack --wait --json
+settlemesh deploy preflight . --full-stack --json
 ```
+
+Read `runtime`, `admission.can_start_now`, `admission.code`, and `admission.message`. Preflight uploads no source and creates no hold, app, or reservation. Even `admission.can_start_now: true` is only a current snapshot; it does not override unavailable release authorization or guarantee a later deploy.
+
+When release authorization becomes available, the intended owner command is `settlemesh deploy . --name my-app --full-stack --wait --json`. The target policy is automatic publication after mechanical protocol checks pass, with no default human approval queue. This is future/default product policy, not a statement that source deployment succeeds today.
+
+For app/build ids that already exist, use only read-only observation first:
+
+```bash
+settlemesh deploy status <app-id> --json
+settlemesh deploy logs <build-id> --json
+settlemesh deploy url <app-id> --json
+```
+
+Queued, failed, `candidate_ready`, and preview records are not proof of serving production; a missing URL is not success. Destructive cleanup is separate: after a human separately confirms the exact app and outage effect, use `settlemesh apps delete <app-id> --confirm`. It takes the app offline and queues provider cleanup; never run it automatically from recovery guidance or a browser.
+
+The packaging and runtime details below describe the intended pipeline after release authorization is available. They do not override the current fail-closed containment. SettleMesh is not a template generator; the managed full-stack build path targets **Next.js** through OpenNext for Cloudflare.
 
 ### Deploying a plain static site (HTML/CSS/JS, no framework)
 
@@ -228,18 +246,18 @@ index.html          (at the project root — works as-is)
 settlemesh.json     { "stack": { "runtime": { "prototype": "static" } } }
 ```
 
-Then `settlemesh deploy . --name my-site --wait --json`. **No `package.json`, no build script, no special directory needed** — `runtime.prototype: "static"` tells the platform to serve the files as-is, bypassing framework auto-detection entirely (without it, a stray `package.json` can route you into the Next.js/OpenNext build, which fails for a non-Next project). No `--full-stack` either — a static site needs no DB/auth stack, and `apps doctor --fix` full-stack wiring is unnecessary for it.
+After release authorization becomes available, the intended command is `settlemesh deploy . --name my-site --wait --json`. **No `package.json`, no build script, no special directory is intended to be needed** — `runtime.prototype: "static"` selects static serving instead of framework auto-detection. No `--full-stack` either: a static site needs no DB/auth stack, and `apps doctor --fix` full-stack wiring is unnecessary for it.
 
 For a bundler-built SPA, run your build first and deploy the OUTPUT directory the same way (its `index.html` at that directory's root + the same `settlemesh.json`), or keep sources and built files separate.
 
-**Naming + URL.** The user picks the app name with `--name` (or `name` in the manifest); the platform assigns the public URL and returns it in deploy JSON at `data.url`. The name must be **at least 5 letters/digits** (shorter or non-latin names are rejected) so the URL is readable. If that name is already taken, the platform auto-appends a suffix (`name-2`, `name-3`, … then `name-a` …) so you still get a clean, STABLE URL — it never clobbers an existing app. After the first deploy the CLI pins the resolved `app_id` into your manifest, so a plain `settlemesh deploy <dir>` keeps the SAME app + URL on every redeploy (no `--app-id` to remember). Do not construct the URL from a suffix in client code; capture `data.url`, or query it later with `settlemesh deploy url <app-id>` / `settlemesh apps list`.
+**Naming + URL contract (when deployment is authorized).** The user picks the app name with `--name` (or `name` in the manifest); a successful serving deployment is expected to return its server-issued URL in deploy JSON at `data.url`. The name must be **at least 5 letters/digits**. Do not construct a URL from a suffix in client code: only a returned/read-back URL is evidence, and current authorization denial returns none.
 
-`--full-stack` provisions and injects SettleMesh auth, a database, a runtime API key, and deployment secrets. The free tier caps how many apps you can have (a small number of frontend apps, and fewer backend/full-stack apps) — if a deploy returns `backend_quota_exceeded`/`deploy_quota_exceeded` (HTTP 402), that is an app-COUNT cap, not a balance problem: free a slot with `settlemesh apps delete <app-id> --confirm` (list yours with `settlemesh apps list`; the `--confirm` is required because delete tears the app's live runtime down irreversibly), redeploy onto an existing app with `--app-id`, or upgrade. Redeploy onto an existing app without changing its public URL by pinning its id:
+When release authorization is available, `--full-stack` is intended to provision and inject SettleMesh auth, a database, a runtime API key, and deployment secrets. If preflight reports `backend_quota_exceeded`/`deploy_quota_exceeded`, treat that as an app-count constraint, not a successful deploy or a balance claim. Deleting an existing app requires the separate destructive confirmation described above.
 
 ```bash
 settlemesh deploy . --app-id app_123 --full-stack --wait --json
-settlemesh deploy status app_123 --json     # if --wait timed out
-settlemesh deploy logs build_123 --json      # diagnose a failed build
+settlemesh deploy status app_123 --json
+settlemesh deploy logs build_123 --json
 ```
 
 ### Deploying a container app (Python / Go / Rust / Node — any Dockerfile)
@@ -252,15 +270,13 @@ Any non-Next.js server is a **container app** (`--framework container`, or auto-
 - **Bind to `0.0.0.0` and read `$PORT`** (the platform sets it). Binding `127.0.0.1` makes the health check fail and the deploy never goes ready.
 - **Charging users?** A paid endpoint must invoke a **published, callable, priced** capability/dynamic-service with `X-Settle-Payer`. Deploy injects the app's runtime key but does NOT auto-create or price that charge capability — provision + price it first, or the first paid call fails. Verify the billed path only after deploy (end-user-pays can't be exercised locally with a user key).
 
-### Getting the live URL (read this — it is the #1 deploy confusion)
+### Reading an existing live URL
 
-The `settlemesh deploy` command returns the public URL in its own JSON output at top level: `data.url` (and `data.public_url`) — **capture it from the deploy output**. If you lost that output, re-fetch it any time with **`settlemesh deploy url <app-id>`** (prints the live URL) or **`settlemesh apps list`** (id, name, status, URL for all your apps). Note: `settlemesh deploy status <app-id> --json` shows the BUILD record (status/artifact), which does NOT contain the url — use it to check the build `status`, not to read the url. **Never use `settlemesh search` to find your own deployed app — search is the capability/service discovery index and does NOT list app deployments; use `apps list`/`deploy url` instead.**
+For an app id that already exists, **`settlemesh deploy url <app-id> --json`** reads the server-issued serving URL and `settlemesh apps list --json` lists owned app records. `settlemesh deploy status <app-id> --json` is status/readback, not URL evidence. **Never use `settlemesh search` to find your own deployed app**: search is capability/service discovery, not deployment inventory. Current `deployment_authorization_unavailable` produces no new URL.
 
-Two normal outcomes that are NOT failures:
-- **`--wait` timed out while the build was still running.** Network `npm install` can take several minutes (registry stalls + retries are normal). This is not a failure — poll `settlemesh deploy status <app-id> --json` until the build `status` is `active`/complete, then re-run `settlemesh deploy <dir> --app-id <id>` (or read the url you captured from the original deploy output). Don't conclude it failed.
-- **The live URL returns HTTP 302/redirect to a login page.** If you deployed with auth required (`--full-stack` or auth mode `required`), the app root redirects unauthenticated visitors to SettleMesh login — that is the working login gate, not a broken deploy. The app is live; sign in (or set auth mode `lazy`) to see content.
+For an existing in-flight record, a `--wait` timeout is not terminal evidence: poll status and read logs before deciding whether retry is appropriate. For an existing serving URL, an HTTP 302 can be an intentional required-auth gate; verify the deployment readback before interpreting it.
 
-Give the user the `url` from the `deploy` output (`data.url`), or re-fetch it with `settlemesh deploy url <app-id>` — not `deploy status`, which is the build record. `preview` is the default target; promote to production explicitly only when asked.
+Only give the user a URL returned by a successful serving response or `settlemesh deploy url <app-id> --json`. A candidate/preview URL or a fabricated hostname is not production evidence.
 
 **Diagnosing a failed deploy:** a build can go green yet the DEPLOYMENT still fail (worker/container provisioning, secret injection, smoke check). `settlemesh deploy status <app-id>` now prints both the build status AND the latest deployment's `status`/`url`/`error` — read the `deployment error:` line for the real reason before retrying.
 

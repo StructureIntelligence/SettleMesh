@@ -21,6 +21,7 @@ discover_before_auth='use anonymous `settlemesh search` / `show` and other publi
 authenticated_quote='Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
 legal_independence='confirmation cannot turn an unavailable Legal state into PASS'
 deployment_availability='subject to live server/preflight availability'
+deployment_authorization_unavailable='deployment_authorization_unavailable'
 
 projections=(
   agent.md
@@ -372,6 +373,26 @@ done
 require_text agent.md 'settlemesh apps delete <app-id> --confirm'
 require_text agent.md '428 confirmation_required'
 require_text agent.md 'agent must STOP here — never auto-pay'
+for required_deploy_truth in \
+  'settlemesh deploy preflight . --full-stack --json' \
+  'admission.can_start_now' \
+  "$deployment_authorization_unavailable" \
+  'settlemesh deploy status <app-id> --json' \
+  'settlemesh deploy logs <build-id> --json' \
+  'settlemesh deploy url <app-id> --json' \
+  'settlemesh apps delete <app-id> --confirm' \
+  'no default human approval queue'; do
+  require_text agent.md "$required_deploy_truth"
+done
+
+for unavailable_deploy_claim in \
+  'then returns the stable live URL in `data.url`' \
+  'preview` is the default target'; do
+  if rg -n -F -- "$unavailable_deploy_claim" agent.md >/dev/null; then
+    printf 'agent.md still promises unavailable deployment behavior: %s\n' "$unavailable_deploy_claim" >&2
+    failed=1
+  fi
+done
 
 if (( failed )); then
   exit 1
