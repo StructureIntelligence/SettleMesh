@@ -4,7 +4,7 @@
 export function PoweredBySettleMesh() {
   return (
     <a
-      href="https://settlemesh.io/?utm_source=template&utm_medium=badge"
+      href="https://www.settlemesh.io/?utm_source=template&utm_medium=badge"
       target="_blank"
       rel="noopener noreferrer"
       style={{

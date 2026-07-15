@@ -35,7 +35,7 @@ pure Node 18+ builtins, zero dependencies.
 
 Open `server.js` and set `CAPABILITY_ID` to the capability you want to bill for, then shape the
 request `input` to match it. The capability catalogue and exact request bodies are in the agent
-guide at <https://settlemesh.io/agent.md>. (There's a `TODO(you)` marker at the spot to edit.)
+guide at <https://www.settlemesh.io/agent.md>. (There's a `TODO(you)` marker at the spot to edit.)
 
 ## The badge is optional
 

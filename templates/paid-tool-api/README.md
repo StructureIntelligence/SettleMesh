@@ -48,7 +48,7 @@ The deployed app also serves a small docs/landing page (`public/index.html`) wit
 ## Make it yours
 
 - Edit the body of `POST /api/tool` in `server.js`.
-- To resell a different SettleMesh capability or cloud-worker offer, change `CAPABILITY` (env `TOOL_CAPABILITY_ID`) and set the invoke **input** to that capability's documented schema — see https://settlemesh.io/agent.md. Don't guess the request body.
+- To resell a different SettleMesh capability or cloud-worker offer, change `CAPABILITY` (env `TOOL_CAPABILITY_ID`) and set the invoke **input** to that capability's documented schema — see https://www.settlemesh.io/agent.md. Don't guess the request body.
 - Tune your margin via `stack.billing.markup` in `settlemesh.json`.
 
 ## The badge is optional

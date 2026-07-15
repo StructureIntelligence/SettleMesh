@@ -29,5 +29,5 @@ That's it. `settlemesh deploy` reads `settlemesh.json` and ships the app with:
 ## Adding capabilities
 
 To call SettleMesh metered capabilities or payments, read the agent guide at
-https://settlemesh.io/agent.md for the exact request bodies. Do not invent
+https://www.settlemesh.io/agent.md for the exact request bodies. Do not invent
 endpoints — if unsure of a request shape, leave a TODO and consult agent.md.
