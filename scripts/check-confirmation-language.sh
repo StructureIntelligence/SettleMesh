@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v rg >/dev/null 2>&1; then
+  printf 'confirmation-language guard requires ripgrep (rg)\n' >&2
+  exit 2
+fi
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
