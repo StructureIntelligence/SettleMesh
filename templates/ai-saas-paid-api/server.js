@@ -27,7 +27,7 @@ const RUNTIME_KEY = process.env.SETTLEMESH_APP_API_KEY || process.env.SETTLE_API
 // ---------------------------------------------------------------------------------------------------
 // The AI capability this app charges for.
 //
-// TODO(confirm against https://settlemesh.io/agent.md): verify the capability id and the exact `input`
+// TODO(confirm against https://www.settlemesh.io/agent.md): verify the capability id and the exact `input`
 // body before going live. The INVOKE MECHANICS below are correct (POST /v1/capabilities/{id}/invoke
 // with a JSON `{ input: {...} }` body, Bearer runtime key, X-Settle-Payer = end-user session). What you
 // must confirm is (a) the capability id string and (b) the field names inside `input` for that model.

@@ -47,7 +47,7 @@ login gate), then calls `POST /v1/capabilities/{id}/invoke` with the app's runti
 
 - **Swap the AI capability** — set `SETTLEMESH_CAPABILITY_ID` (or edit the constant in `server.js`) and
   adjust the `input` body to match. Confirm the capability id and its exact request body against the
-  agent guide: <https://settlemesh.io/agent.md>. There is a clearly-marked `TODO(confirm against agent.md)`
+  agent guide: <https://www.settlemesh.io/agent.md>. There is a clearly-marked `TODO(confirm against agent.md)`
   at that line — do not guess the body.
 - **Change your markup** — edit `stack.billing.markup` in `settlemesh.json` (allowed range `1.0`–`1.5`).
 - **Change the displayed estimate** — set `PRICE_ESTIMATE_AEV` (UI hint only; the real charge comes from

@@ -28,7 +28,7 @@ const RUNTIME_KEY = process.env.SETTLEMESH_APP_API_KEY || process.env.SETTLE_API
 //
 // TODO (make it yours): swap this for whatever you want to sell — another capability id, a cloud-worker
 // offer ("wof_..."), or your own logic. If you call a different SettleMesh capability/offer and are
-// unsure of the exact request body, check the agent guide at https://settlemesh.io/agent.md before
+// unsure of the exact request body, check the agent guide at https://www.settlemesh.io/agent.md before
 // changing `invokeTool` below — do not guess the shape.
 // ---------------------------------------------------------------------------------------------------
 const CAPABILITY = process.env.TOOL_CAPABILITY_ID || "llm.chat";

@@ -26,7 +26,7 @@ settlemesh deploy
   are injected at runtime; see `app/api/hello/route.ts` for a query example.
 - **Usage billing & payments** — when you add metered SettleMesh capabilities, your
   users pay per use in Aev with no billing code on your side. This starter ships with
-  login + DB; see https://settlemesh.io/agent.md to wire up metered capabilities.
+  login + DB; see https://www.settlemesh.io/agent.md to wire up metered capabilities.
 
 ## The badge
 

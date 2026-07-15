@@ -28,7 +28,7 @@ const RUNTIME_KEY = process.env.SETTLEMESH_APP_API_KEY || process.env.SETTLE_API
 //
 // TODO(you): set CAPABILITY_ID to the capability you want to bill for, and confirm the exact
 //            `input` body for it. The capability catalogue + per-capability request shapes are in
-//            the agent guide at https://settlemesh.io/agent.md — do NOT guess the ID or body.
+//            the agent guide at https://www.settlemesh.io/agent.md — do NOT guess the ID or body.
 //            (Example real capability used by other templates: "image.gpt-image-2".)
 const CAPABILITY_ID = "REPLACE_WITH_A_REAL_CAPABILITY_ID"; // e.g. "image.gpt-image-2"
 
@@ -142,7 +142,7 @@ const server = http.createServer(async (req, res) => {
     let input = {};
     try { input = JSON.parse(raw || "{}"); } catch {}
 
-    // TODO(you): shape `input` to match your chosen CAPABILITY_ID (see https://settlemesh.io/agent.md).
+    // TODO(you): shape `input` to match your chosen CAPABILITY_ID (see https://www.settlemesh.io/agent.md).
     try {
       const r = await invokeCapability(CAPABILITY_ID, input, payer);
       if (r.status >= 400) {

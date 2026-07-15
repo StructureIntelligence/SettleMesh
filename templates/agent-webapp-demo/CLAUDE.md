@@ -26,7 +26,7 @@ developer).
 - Keep all SettleMesh calls in `lib/settlemesh.ts`. Don't sprinkle fetches around.
 - The managed DB server key is **server-side only** — never expose it to the client.
 - Before wiring a *real* capability, set `SETTLEMESH_POLISH_CAPABILITY` and confirm
-  the tool's exact input contract in the agent guide: https://settlemesh.io/agent.md
+  the tool's exact input contract in the agent guide: https://www.settlemesh.io/agent.md
   (the `input` field names vary per capability). There's a `TODO` marking this.
 - The "Powered by SettleMesh" badge in `components/powered-by-settlemesh.tsx` is
   optional and user-deletable.
