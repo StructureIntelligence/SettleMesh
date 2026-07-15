@@ -2,7 +2,8 @@
 
 The "hello world" of paid apps — login plus one paid action, billed straight to the logged-in user's wallet. **Charge your users per use, with no billing code:** SettleMesh handles OAuth login, the wallet, metering, and the end-user charge. You write the action.
 
-> **Aev** is SettleMesh prepaid credit: **1 USD = 100 Aev**, funded by your users via Stripe.
+> **Aev** is SettleMesh prepaid credit: **1 USD = 100 Aev**. Card funding is offered only when the live
+> server reports its Legal/provider gates available; this template does not assume live funding.
 
 ## Quickstart
 
@@ -24,9 +25,11 @@ settlemesh deploy
   `POST /v1/capabilities/{id}/invoke`. The user's session is forwarded as the `X-Settle-Payer`
   header, so the **logged-in user's** Aev wallet is charged — not yours. Configure the markup in
   `settlemesh.json` (`billing.markup`).
-- **Payments** — users top up their Aev wallet with Stripe; no payments code here. The UI shows a
-  price estimate (from `/v1/billing/quote`, read-only) before the action and the actual amount
-  charged after.
+- **Payments** — the UI shows a read-only price estimate from `/v1/billing/quote` before the action.
+  It reports captured money afterward only from the explicit platform `x-settle-charged-aev` header;
+  an HTTP/network failure or missing capture evidence remains unknown and keeps the same operation
+  identity for reconciliation. This minimal template does not fabricate a funding path; add one only
+  when the live server reports its Legal/provider gates available and returns the path.
 
 The whole loop lives in `server.js` (`/api/action`) and `public/` (a single page). No npm install —
 pure Node 18+ builtins, zero dependencies.
