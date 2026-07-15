@@ -8,7 +8,7 @@ Read this before using SettleMesh from Codex, Cursor, Claude Code, CI, or anothe
 
 If you are an agent reading this for the first time:
 
-1. Save this file into the project as `agent.md` — run `settlemesh agent-md --save`, or fetch `https://api.settlemesh.io/agent.md` (the same `api.` host you call at runtime).
+1. Save this file into the project as `agent.md` — run `settlemesh agent-md --save`, or fetch `https://api.settlemesh.io/agent.md` (the same `api.` host you call at runtime). If a different project `agent.md` already exists, the command refuses to overwrite it: use `--output .settlemesh/settlemesh-agent.md` to keep both, or review it and use `--force` only when replacing it is intentional.
 2. Create a skill / rule in your runtime that says: **"For any SettleMesh task, read `./agent.md` first."** (Claude Code: a skill; Cursor: a rule; Codex/CI: a line in your project instructions.)
 3. Discover first: anonymous `settlemesh search` / `show` (and other public read-only GET surfaces) work without login — use them before authenticating.
 4. Authenticate only when an operation contract needs auth: run `settlemesh login` (or set `SETTLE_API_KEY`) for quote (`POST /v1/billing/quote`), paid invoke, deploy/publish, or user-private state — a human approves in the browser; the CLI reuses the stored session.
@@ -18,7 +18,7 @@ From then on every SettleMesh task starts from your local `agent.md` — discove
 
 ## Core Rule
 
-SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. Paid calls use Aev. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. A user's first request like "delete X" is intent, not confirmation for those exceptional actions. Do not add `--confirm` / `?confirm=true` until a separate human confirmation turn names the exact resource and effect. First identify the target, show what would happen, and stop. If the target is missing or already absent, report that result without using `--confirm`.
+SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. Ordinary paid calls settle applicable Aev automatically, and a passing mechanical publish does not enter a human review, payment, or release queue. A user's first request like "delete X" is intent, not confirmation. Do not add `--confirm` / `?confirm=true` for destructive actions until a separate human confirmation turn names the exact resource and effect. First identify the target, show what would happen, and stop. If the target is missing or already absent, report that result without using `--confirm`. **Exception fixed by Frame/use/friend:** `friend remove/block` and `group remove/leave` are reversible coordination, so an authenticated direct request is sufficient and must not be interrupted by a second confirmation.
 
 **Catalog shape.** Search returns groups and units. Service groups are not callable — invoke a unit (capability/entrypoint id), never a group id. Canonical read models are UnitDocument / GroupDetail; a publish manifest/card is the write-side artifact for `services upload`, while the legacy ServiceCard is a compatibility adapter only (not the call target model).
 
@@ -40,30 +40,33 @@ If none of these fit (a local-only script, no users, no paid calls), you don't n
 
 ## No CLI? HTTP-Only Quick Start
 
-If your runtime cannot install npm packages (CI sandbox, restricted agent runtime), the whole search→show→quote→call loop is plain HTTP against `https://api.settlemesh.io` with `Authorization: Bearer $SETTLE_API_KEY`:
+If your runtime cannot install npm packages (CI sandbox, restricted agent runtime), public discovery and account actions are both plain HTTP against `https://api.settlemesh.io`. **Search and inspect are public: do not obtain, send, or expose a key for them.** Quote, invoke, and account reads require `Authorization: Bearer $SETTLE_API_KEY`:
 
 ```bash
-# 1. Search the catalog (this IS the discovery endpoint — same index the CLI uses)
-curl -H "Authorization: Bearer $SETTLE_API_KEY" "https://api.settlemesh.io/v1/services/search?q=webpage+to+markdown"
-curl -H "Authorization: Bearer $SETTLE_API_KEY" "https://api.settlemesh.io/v1/services/search?all=true&category=web-knowledge-services"
+# 1. Search the public catalog (no key; this is the same discovery index the CLI uses)
+curl "https://api.settlemesh.io/v1/services/search?q=webpage+to+markdown"
+curl "https://api.settlemesh.io/v1/services/search?all=true&category=web-knowledge-services"
 
-# 2. Inspect the contract (inputs, pricing, examples)
-curl -H "Authorization: Bearer $SETTLE_API_KEY" "https://api.settlemesh.io/v1/services/webpage.to_markdown"
+# 2. Inspect the public contract (no key; inputs, pricing, examples)
+curl "https://api.settlemesh.io/v1/services/webpage.to_markdown"
 
-# 3. Quote before a paid call — read-only, no hold, no charge
+# 3. Only after choosing an account-required action, provide a key.
+export SETTLE_API_KEY="sk-settle-..."
+
+# 4. Quote before a paid call — read-only, no hold, no charge
 curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: application/json" \
   -d '{"capability_id":"webpage.to_markdown","input":{"url":"https://example.com"}}' \
   "https://api.settlemesh.io/v1/billing/quote"
 
-# 4. Invoke — the canonical prefix is /v1/capabilities/ (NOT /v1/tools/)
+# 5. Invoke — the canonical prefix is /v1/capabilities/ (NOT /v1/tools/)
 curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: application/json" \
   -d '{"input":{"url":"https://example.com"}}' \
   "https://api.settlemesh.io/v1/capabilities/webpage.to_markdown/invoke"
 
-# 5. Your balance / ledger (developer account — works with an API key)
+# 6. Your balance / ledger (developer account — works with an API key)
 curl -H "Authorization: Bearer $SETTLE_API_KEY" "https://api.settlemesh.io/v1/credits/balance"
 
-# 6. Connectivity / key check — free, no Aev, no quota
+# 7. Connectivity / key check — free, no Aev, no quota
 curl -H "Authorization: Bearer $SETTLE_API_KEY" "https://api.settlemesh.io/v1/ping"
 # → {"success":true,"data":{"ok":true,"account_id":"..."}}
 ```
@@ -74,7 +77,7 @@ HTTP-only gotchas (each one costs cold agents real time — read them now):
 - **`POST /v1/capabilities/<id>/invoke` is the ONE canonical invoke path for ANY search-result id** — platform capabilities, published dynamic services, **hosted agents** (`agent_…`), and **worker offers** (`offer_…`) all execute through it. Take a search hit's `entrypoints[].id` and POST it verbatim (e.g. `ecosystem.article.summarize`, or a bare `agent_abc` / `offer_xyz`); you do NOT need to know whether it is a capability, agent, or worker, and you do NOT pass a "kind" — the platform resolves it and runs the same callability + billing checks. Don't guess `POST /v1/tools/<id>/invoke` — that exact path 404s; the canonical invoke is `POST /v1/capabilities/<id>/invoke` (`POST /v1/tools/<id>/call` is a compatibility alias only, and `GET /v1/tools/<id>` returns a tool's schema for inspection). A bare **app id** (`app_…`) is the exception: app commands are addressed by a composite `{app_id}/{command_id}` pair, so invoking an app id alone returns `app_command_scope_required` pointing you at `POST /v1/app-commands/{app_id}/{command_id}/invoke`. (`/v1/dynamic-services/<dsvc_id>/operations/<op>/invoke` is only for your own private draft dynamic service; once it is in search, use `/v1/capabilities/`.) Groups are not callable — never POST a group id as an invoke target.
 - **Handle the response by `execution.mode`** — the contract (from `GET /v1/services/<id>` or the tool spec) declares one of three modes so you never have to guess the response shape: `sync` → the result is in the response `data` envelope; `async` → the call returns a job; the tool spec's `wait` block (`GET /v1/tools/<id>` or `settlemesh tool show <id>`) carries the full poll contract — take the job id from one of `wait.id_paths`, `GET wait.poll_path` until `wait.status_path` reaches a terminal status, then read the result from `wait.result_paths` (`--wait`/`tool events <job-id>` do this for you); `agent` → a hosted-agent run whose output is under `data` and which may stream events. Don't assume one fixed shape across ids; branch on the declared mode and read result locations defensively.
 - **`GET /v1/wallet/balance` is NOT for API keys** — it is the end-user (payer-session) balance and returns 401 `invalid_payer_token` for a bearer key. Your own balance is `/v1/credits/balance`.
-- CLI-only conveniences with no REST equivalent: `recipes`, `doctor`, `tool schema`, deploy (`settlemesh deploy` orchestrates packaging/upload — deploying requires the CLI).
+- CLI-only conveniences with no REST equivalent: `doctor`, `tool schema`, deploy (`settlemesh deploy` orchestrates packaging/upload — deploying requires the CLI). Recipes also have public, read-only REST: `GET /v1/recipes` and `GET /v1/recipes/{topic}`; neither requires a key.
 
 ## Install And Auth
 
@@ -84,13 +87,14 @@ empty dir with no `package.json` silently no-ops — no binary — so prefer `-g
 ```bash
 npm install -g settlemesh@latest
 settlemesh doctor --require-latest
-settlemesh whoami --json     # ALWAYS check auth first in a fresh env (see auth below)
+# Only when the selected next action needs an account:
+settlemesh whoami --json     # 200 = the saved login/key is ready; 401 = fix auth before continuing
 ```
 
 The npm package and primary command are both `settlemesh`. The older `settle`, `settlekit`, and `kit` aliases still work for compatibility.
 
 **Auth — two ways:**
-- **Interactive:** `settlemesh login` — a human approves in the browser; the CLI reuses the stored session.
+- **Interactive:** `settlemesh login` — complete browser sign-in to authorize this CLI; the CLI reuses the stored session.
 - **Headless / CI / agent runs (no browser):** set an API key, sent as `Authorization: Bearer <key>`:
   ```bash
   export SETTLE_API_KEY="sk-settle-..."
@@ -110,7 +114,7 @@ If your runtime speaks the Model Context Protocol, expose the whole SettleMesh c
   ```
 - **Codex** (`~/.codex/config.toml`): `[mcp_servers.settlemesh]` with `command = "npx"`, `args = ["-y","settlemesh","mcp"]`, `env = { SETTLE_API_KEY = "sk-settle-..." }`.
 
-The server exposes a capability-invoke tool over the same search→show→quote→call loop below: search for a tool, inspect it, quote the exact paid call, then invoke any catalog capability by id. Ordinary paid invokes do not require a second confirmation; the same Aev billing, quotes, and error contract apply. Run `settlemesh login` first to omit the key.
+The server exposes a capability-invoke tool over the same search→show→quote→call loop below: search for a tool, inspect it, quote the exact paid call, then invoke any catalog capability by id. An ordinary paid call settles Aev automatically and does not need confirmation merely because it is paid. Ask for a separate confirmation only when the action is destructive, high-impact, authorization-expanding, truly irreversible, or its contract explicitly marks `requires_confirmation`. The same Aev billing, quotes, and error contract apply. Run `settlemesh login` first to omit the key.
 
 ## Find A Service
 
@@ -193,7 +197,7 @@ settlemesh aev topup --aev 500 --json    # requests a top-up flow; live availabi
 
 ## Safe Retries — Idempotency-Key (so a retry charges once, not twice)
 
-The retry guidance above (follow the server's 402 fix, poll an async job, re-try a transient 502) is only safe if the call is idempotent — otherwise a retried **paid** POST charges again. Send an **`Idempotency-Key`** header (any unique string per logical operation) on retriable paid calls:
+A transport failure such as HTTP 502 leaves a paid call's outcome unknown. Preserve the original request and reconcile it; only resend when the server supports replay, using the exact same body and **`Idempotency-Key`** for that logical operation. A fresh key creates a fresh paid operation. Send an **`Idempotency-Key`** on retriable paid calls:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: application/json" \
@@ -202,13 +206,13 @@ curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: applic
   "https://api.settlemesh.io/v1/capabilities/web.search/invoke"
 ```
 
-- **Same key + same body** → the original result is replayed and you are charged **exactly once** (replays carry an `idempotency-replayed: true` response header). Safe to retry blindly on a timeout/502.
+- **Same key + same body** identifies the same logical operation. A timeout, connection loss, HTTP 502, or missing response does **not** prove whether the effect or capture happened. Do not retry blindly and do not mint a new key. Reconcile the same idempotency key / logical operation identity first; if the server supports a retry, resend the exact same body with that same key so you do not create a new logical effect.
 - **Same key + a *different* body** → **HTTP 409 `idempotency_key_conflict`**, fail-closed, **no charge** — use a fresh key for a genuinely new operation.
 - **No key** → every call is a new charge (the default). Reuse one key per logical operation; mint a new key per new operation.
 
-**Verify a charge by its captured ledger entry, not a balance read.** Async settlement makes a balance delta briefly unreliable. Use `GET /v1/credits/ledger?limit=5` for itemized entries; over raw HTTP, also read `x-settle-charged-aev` when present. Match the newest captured entry by endpoint and operation context, not by string-matching your literal `Idempotency-Key` against the derived ledger id. A fixed/input-priced capture should match its exact quote; a usage-metered capture is the measured amount at or below its hold ceiling. A row or response still marked pending/unknown is not final proof.
+**Verify a charge only from trusted capture evidence: a terminal captured ledger entry, or the explicit platform `x-settle-charged-aev` post-capture response header when present.** Never infer a charge from HTTP success/failure, a provider response body, an approximate quote, a balance delta, or arbitrary `cost` / `amount` / `charged` fields. Async settlement makes a balance delta briefly unreliable. Use `GET /v1/credits/ledger?limit=5` for itemized entries. Match a captured entry by endpoint and operation context, not by string-matching your literal `Idempotency-Key` against the derived ledger id. A fixed/input-priced capture should match its exact quote; a usage-metered capture is the measured amount at or below its hold ceiling. A row or response still marked pending/unknown is not final proof.
 
-**Settlement truth.** A successful provider body does not always mean the ledger is final: `capture_pending` and `unknown` settlement outcomes require reconciliation (poll ledger/request status) — do not report them as charged or settled. HTTP 202, queued, or correlated async acceptance does not mean charged or settled; only a terminal captured ledger record proves the final charge.
+**Settlement truth.** A successful provider body does not always mean the ledger is final: `capture_pending` and `unknown` settlement outcomes require reconciliation (poll ledger/request status using the same logical operation identity) — do not report them as charged or settled. HTTP/network failure is also insufficient evidence of non-capture. HTTP 202, queued, or correlated async acceptance does not mean charged or settled. Preserve the same idempotency key until the operation is reconciled; never turn an unknown outcome into a second blind effect.
 
 ## Build And Deploy An App
 
@@ -282,7 +286,7 @@ Only give the user a URL returned by a successful serving response or `settlemes
 
 **Platform-reserved paths.** The edge owns a few paths that never reach your container — notably **`/healthz`** (the Cloud Run health probe answers there with its own 404 page). Don't expose an app route at `/healthz`; every other path (including `/` and `/api/*`) reaches your handler normally.
 
-**Teardown.** `settlemesh apps delete <app-id> --confirm` (or `DELETE /v1/apps/{id}?confirm=true`) is **destructive and irreversible**: it tears down the app's live runtime resources (Cloud Run / E2B), reclaims its CDN prefix and revokes host routing — a production app serving real traffic goes down immediately. Because of that it is confirmation-gated (R18): without `--confirm` / `?confirm=true` it fails closed with `428 confirmation_required` and does nothing, so a headless/agent caller can't dismantle a live app by accident. It does **NOT** cascade-delete a database/project that `--full-stack` auto-provisioned — that project stays `active` and billable. Delete it explicitly with `settlemesh db delete <project-id>` (list your projects with `settlemesh projects list`) or `DELETE /v1/projects/{project-id}`. Note `apps delete` is effectively idempotent at the data layer: re-deleting an already-deleted app returns `404 app_not_found` even though the first delete succeeded — treat a 404 on re-delete as "already gone", not a failure.
+**Teardown.** `settlemesh apps delete <app-id> --confirm` (or `DELETE /v1/apps/{id}?confirm=true`) is **destructive and irreversible**: it immediately revokes host routing and frees the app slot, so a production app serving real traffic goes down immediately; it then queues Cloud Run / E2B / Cloudflare and CDN cleanup. A response `status=deleted` means the app is unavailable, **not** that every provider resource has already been deleted. Each deployment remains `teardown_pending` until cleanup is confirmed; a failed or interrupted cleanup stays visible to the operator reclaimer for retry rather than disappearing. Because of the immediate outage it is confirmation-gated (R18): without `--confirm` / `?confirm=true` it fails closed with `428 confirmation_required` and does nothing, so a headless/agent caller can't dismantle a live app by accident. It does **NOT** cascade-delete a database/project that `--full-stack` auto-provisioned — that project stays `active` and billable. Delete it explicitly with `settlemesh db delete <project-id>` (list your projects with `settlemesh projects list`) or `DELETE /v1/projects/{project-id}`. Note `apps delete` is effectively idempotent at the data layer: re-deleting an already-deleted app returns `404 app_not_found` even though the first delete succeeded — treat a 404 on re-delete as "already gone", not a failure.
 
 ### Remix an existing app (`settlemesh remix <app-id>`)
 
@@ -409,7 +413,7 @@ Always call the platform at `SETTLEMESH_BASE_URL` (the `api.` host — it surviv
 **Object storage** (always injected; namespaced per app): all calls use `Authorization: Bearer {SETTLEMESH_APP_API_KEY}`. The namespace is determined by the **authenticating key**, not by any header: the injected runtime key (`SETTLEMESH_APP_API_KEY`) scopes you to `apps/<app_id>/`, so your app only ever sees its own objects. (A plain account/owner key used directly — e.g. while testing from the CLI — is namespaced per-owner under `apps/owner-<owner_id>/` instead; deployed apps always use the runtime key, so this only matters for ad-hoc testing.)
 - Write: `PUT {SETTLEMESH_BASE_URL}/v1/storage/objects/<key>` with the file bytes as the body (`Content-Type` sets the stored type).
 - **Read: `GET {SETTLEMESH_BASE_URL}/v1/storage/objects/<key>`** — streams the bytes back directly (Bearer-auth). Add `?presign=true` (or `POST /v1/storage/sign {"key":"..."}`) only if you want a short-lived shareable URL instead of the bytes.
-- List: `GET {SETTLEMESH_BASE_URL}/v1/storage/objects?prefix=&limit=`. Delete: `DELETE .../objects/<key>`.
+- List: `GET {SETTLEMESH_BASE_URL}/v1/storage/objects?prefix=&limit=`. `DELETE .../objects/<key>` is recoverable logical deletion: retain its returned `data.recovery.recovery_id`, then use `POST /v1/storage/recovery/{recovery_id}/restore` (or `settlemesh storage restore <recovery-id>`) to make the object visible again. The `.settlemesh-recovery/` prefix is platform-reserved and is never listable/readable through an app key; this is not immediate provider-level erasure or revocation of an already-issued short-lived URL.
 
 ### Wire one service to another with `@app:` (don't hardcode sibling URLs)
 
@@ -477,7 +481,7 @@ settlemesh open <command-ref> --input '{...}'   # open an app command's web/hand
 
 Give the returned URL to the user, then poll `handoff get` for the result.
 
-**If the provider is your own endpoint/app, it must speak the handoff webhook contract.** On `handoff create` the platform POSTs the session (JSON body; headers include `X-Settle-Handoff-Session`, `X-Settle-Caller-Account`, and an HMAC `X-Settle-Handoff-Signature: sha256=<hex>`) to the provider — an app provider receives it at `{app base}/api/handoff/sessions`. The endpoint MUST respond with JSON containing **`continuation_url`** (top-level, or nested under `data`) — the human-facing URL the platform hands back to the caller. Any response without `continuation_url` fails the create with `handoff endpoint did not return continuation_url`. A relative `continuation_url` is resolved against the provider's base URL.
+**If the provider is your own endpoint/app, it must speak the handoff webhook contract.** On `handoff create` the platform POSTs the session (JSON body; headers include `X-Settle-Handoff-Session`, `X-Settle-Caller-Account`, and an HMAC `X-Settle-Handoff-Signature: sha256=<hex>`) to the provider — an app provider receives it at `{app base}/api/handoff/sessions`. The endpoint MUST respond with JSON containing **`continuation_url`** (top-level, or nested under `data`) — the human-facing URL the platform hands back to the caller. Any response without `continuation_url` fails the create with `handoff endpoint did not return continuation_url`. A relative `continuation_url` is resolved against the provider's base URL. The webhook also carries `completion.{redeem_url,redeem_token,expires_at}`: after the human has opened the platform handoff URL and completed your page, your **server** must `POST redeem_url` with `{"redeem_token":"…","status":"completed|canceled|failed","result":{…}}`. Keep `redeem_token` server-side — never put it in browser JavaScript, a redirect, or logs. It is session-TTL-bound and exactly once; before the authorized human reaches the gateway the callback returns `handoff_human_not_authorized`, and a replay is rejected. Returning only `continuation_url` can show a page but cannot complete the handoff.
 
 ## Publish Your Own Service (wrap any API → a searchable, billable SettleMesh service)
 
@@ -559,8 +563,8 @@ The input for a lent coding agent is `{"prompt":"<your task>"}`. Public/searchab
 settlemesh friend add bob@example.com           # send a request — bob must accept (no auto-friend)
 settlemesh friend accept alice@example.com      # accept a pending incoming request
 settlemesh friend list [--pending]              # accepted friends; --pending shows requests; --status blocked too
-settlemesh friend remove bob@example.com --confirm    # unfriend — immediately revokes their access to your friends offers
-settlemesh friend block spammer@example.com --confirm # block (prevents requests/calls); `friend unblock` reverses it
+settlemesh friend remove bob@example.com              # unfriend — immediately revokes their access to your friends offers
+settlemesh friend block spammer@example.com           # block (prevents requests/calls); `friend unblock` reverses it
 ```
 
 Then lend to ALL accepted friends in one shot (no per-caller `--allow`):

@@ -13,7 +13,8 @@
 //   No secret ever reaches the browser. The runtime key stays server-side; the browser talks only to
 //   this server's /api/* routes.
 //
-//   Aev is SettleMesh prepaid credit: 1 USD = 100 Aev, funded by the user via Stripe.
+//   Aev is SettleMesh prepaid credit: 1 USD = 100 Aev. Card funding is offered only when the live
+//   server response says its Legal/provider gates are available; this template never assumes that.
 
 const http = require("http");
 const fs = require("fs");
@@ -36,8 +37,8 @@ const CAPABILITY_ID = process.env.SETTLEMESH_CAPABILITY_ID || "llm.chat";
 const MAX_PROMPT_CHARS = 2000;
 
 // A display-only price floor (Aev) so the UI can show "you pay per use" before the call returns.
-// The REAL charge is computed by the platform (upstream cost × your manifest markup) and echoed back
-// in the invoke response; we surface that actual number when present. This is just a pre-call estimate.
+// This is only a pre-call estimate. Final capture is displayed only from the platform's explicit
+// x-settle-charged-aev post-capture response header, never from the provider response body.
 const PRICE_ESTIMATE_AEV = Number(process.env.PRICE_ESTIMATE_AEV || 2);
 
 // ---------------------------------------------------------------------------------------------------
@@ -63,20 +64,21 @@ function payerToken(req) {
 // ---------------------------------------------------------------------------------------------------
 // SettleMesh call helper. RUNTIME_KEY authenticates the app; X-Settle-Payer bills the logged-in user.
 // ---------------------------------------------------------------------------------------------------
-async function settleFetch(method, p, payer, body) {
+async function settleFetch(method, p, payer, body, idempotencyKey) {
   const headers = { Authorization: "Bearer " + RUNTIME_KEY };
   if (payer) headers["X-Settle-Payer"] = payer; // <- this is what makes the END USER pay.
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body) headers["Content-Type"] = "application/json";
   const res = await fetch(BASE + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
-  return { status: res.status, json };
+  return { status: res.status, json, headers: res.headers };
 }
 
 // Invoke a capability for the paying user.
-function invokeCapability(capabilityId, input, payer) {
-  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(capabilityId)}/invoke`, payer, { input: input || {} });
+function invokeCapability(capabilityId, input, payer, idempotencyKey) {
+  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(capabilityId)}/invoke`, payer, { input: input || {} }, idempotencyKey);
 }
 
 // Defensively unwrap a possibly-{success,data,meta}-wrapped response down to its payload.
@@ -107,23 +109,33 @@ function extractText(json) {
   return probe(d) || probe(json) || "";
 }
 
-// Search the response for the actual amount billed, so the UI can show the real charge (not a guess).
-function extractCost(obj, depth = 0) {
-  if (!obj || typeof obj !== "object" || depth > 5) return null;
-  const keys = ["aev", "cost", "cost_credits", "total_credits", "credits", "billed", "billed_aev", "amount", "charged"];
-  for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === "number" && isFinite(v) && v > 0) return v;
-  }
-  for (const k of Object.keys(obj)) {
-    const v = obj[k];
-    if (v && typeof v === "object") {
-      const found = extractCost(v, depth + 1);
-      if (found != null) return found;
-    }
-  }
-  return null;
+// Only the platform's explicit post-capture response header is settlement authority here. Capability
+// output is untrusted provider data and must never be searched for cost-like fields.
+function captureEvidence(headers) {
+  const raw = headers && headers.get("x-settle-charged-aev");
+  if (raw == null || String(raw).trim() === "") return { settlement_status: "unknown", captured_aev: null };
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) return { settlement_status: "unknown", captured_aev: null };
+  return { settlement_status: "captured", captured_aev: amount };
 }
+
+// A funding link crosses from a platform response into browser navigation. Accept only an absolute
+// HTTPS URL without credentials, or a same-origin path beginning with exactly one slash.
+function safeFundingURL(value) {
+  if (typeof value !== "string" || value === "" || value !== value.trim()) return null;
+  if (/[\u0000-\u0020\u007f\\]/.test(value)) return null;
+  if (value.startsWith("/")) return value.startsWith("//") ? null : value;
+  if (!/^https:\/\//i.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,200}$/;
 
 function sendJSON(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -160,39 +172,58 @@ const server = http.createServer(async (req, res) => {
     try { body = JSON.parse(raw || "{}"); } catch {}
     const prompt = String(body.prompt || "").trim().slice(0, MAX_PROMPT_CHARS);
     if (!prompt) return sendJSON(res, 400, { error: "prompt_required" });
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+    if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      return sendJSON(res, 400, { error: "idempotency_key_required", message: "Send one stable Idempotency-Key per logical operation." });
+    }
 
     try {
       // TODO(confirm against agent.md): the shape of `input` for your chosen capability. The line below
       // uses a generic chat shape — replace with the exact fields the capability documents.
       const input = { messages: [{ role: "user", content: prompt }] };
-      const r = await invokeCapability(CAPABILITY_ID, input, payer);
+      const r = await invokeCapability(CAPABILITY_ID, input, payer, idempotencyKey);
 
       // Surface the platform's billing errors plainly (e.g. insufficient balance -> prompt a top-up).
       if (r.status === 402) {
+        const detail = unwrap(r.json);
+        const topup = safeFundingURL(detail.topup_url);
         return sendJSON(res, 402, {
           error: "insufficient_balance",
-          message: "Not enough Aev. Add credit and try again.",
-          // The platform serves a hosted Stripe checkout at this gate; sending the user here lets them
-          // top up their Aev balance, then return and run again.
-          topup: "/__settle/billing",
+          message: topup ? "Not enough Aev. Follow the available funding path, then retry this same operation." : "Not enough Aev, and no available funding path was returned.",
+          topup,
+          settlement_status: "unknown",
+          idempotency_key: idempotencyKey,
         });
       }
       if (r.status >= 400) {
-        return sendJSON(res, r.status, { error: "capability_failed", message: "The AI call failed — you were not charged.", detail: r.json });
+        return sendJSON(res, r.status, {
+          error: "capability_failed",
+          message: "The call did not complete here. Settlement is unknown; reconcile this operation before starting another.",
+          detail: r.json,
+          settlement_status: "unknown",
+          idempotency_key: idempotencyKey,
+        });
       }
 
       const text = extractText(r.json);
-      const cost = extractCost(r.json);
+      const capture = captureEvidence(r.headers);
       return sendJSON(res, 200, {
         ok: true,
         text,
-        // The ACTUAL Aev charged to the user, when the response carries it; else the pre-call estimate.
-        cost_aev: cost != null ? cost : null,
+        // This is captured money only when the platform emitted its explicit post-capture header.
+        captured_aev: capture.captured_aev,
+        settlement_status: capture.settlement_status,
+        idempotency_key: idempotencyKey,
         estimate_aev: PRICE_ESTIMATE_AEV,
         currency: "aev",
       });
     } catch (e) {
-      return sendJSON(res, 502, { error: "run_failed", message: String((e && e.message) || e) });
+      return sendJSON(res, 502, {
+        error: "run_failed",
+        message: "Network/provider outcome is unknown. Reconcile this operation before starting another. " + String((e && e.message) || e),
+        settlement_status: "unknown",
+        idempotency_key: idempotencyKey,
+      });
     }
   }
 
@@ -206,4 +237,8 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => console.log("ai-saas-paid-api listening on :" + PORT + " (base " + BASE + ")"));
+if (require.main === module) {
+  server.listen(PORT, () => console.log("ai-saas-paid-api listening on :" + PORT + " (base " + BASE + ")"));
+}
+
+module.exports = { safeFundingURL };

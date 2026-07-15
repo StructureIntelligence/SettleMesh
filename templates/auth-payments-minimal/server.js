@@ -58,20 +58,21 @@ function payerToken(req) {
 // -------------------------------------------------------------------------------------------------
 // SettleMesh call helper. RUNTIME_KEY authenticates the app; X-Settle-Payer bills the logged-in user.
 // -------------------------------------------------------------------------------------------------
-async function settleFetch(method, p, payer, body) {
+async function settleFetch(method, p, payer, body, idempotencyKey) {
   const headers = { Authorization: "Bearer " + RUNTIME_KEY };
   if (payer) headers["X-Settle-Payer"] = payer; // <-- this header makes the USER pay
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body) headers["Content-Type"] = "application/json";
   const res = await fetch(BASE + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
-  return { status: res.status, json };
+  return { status: res.status, json, headers: res.headers };
 }
 
 // Invoke a metered capability: POST /v1/capabilities/{id}/invoke with {input}.
-function invokeCapability(capabilityId, input, payer) {
-  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(capabilityId)}/invoke`, payer, { input: input || {} });
+function invokeCapability(capabilityId, input, payer, idempotencyKey) {
+  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(capabilityId)}/invoke`, payer, { input: input || {} }, idempotencyKey);
 }
 
 // Unwrap a possibly-{success,data,meta}-wrapped response down to its payload object.
@@ -80,22 +81,17 @@ function unwrap(json) {
   return json || {};
 }
 
-// Search a response for any cost/billed/aev field so we can show the ACTUAL amount charged.
-function extractCost(obj, depth = 0) {
-  if (!obj || typeof obj !== "object" || depth > 5) return null;
-  const keys = ["aev", "cost", "cost_credits", "total_credits", "credits", "billed", "billed_aev", "amount", "charged"];
-  for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === "number" && isFinite(v) && v > 0) return v;
-  }
-  for (const k of Object.keys(obj)) {
-    if (obj[k] && typeof obj[k] === "object") {
-      const found = extractCost(obj[k], depth + 1);
-      if (found != null) return found;
-    }
-  }
-  return null;
+// Only the explicit SettleMesh post-capture header is authoritative here. Provider output may contain
+// arbitrary cost/amount-like business fields and is never billing evidence.
+function captureEvidence(headers) {
+  const raw = headers && headers.get("x-settle-charged-aev");
+  if (raw == null || String(raw).trim() === "") return { settlement_status: "unknown", captured_aev: null };
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) return { settlement_status: "unknown", captured_aev: null };
+  return { settlement_status: "captured", captured_aev: amount };
 }
+
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,200}$/;
 
 // Optional read-only pre-estimate. Never charges; falls back to the static price.
 async function quotePrice(payer) {
@@ -141,24 +137,41 @@ const server = http.createServer(async (req, res) => {
     for await (const c of req) raw += c;
     let input = {};
     try { input = JSON.parse(raw || "{}"); } catch {}
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+    if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      return sendJSON(res, 400, { error: "idempotency_key_required", message: "Send one stable Idempotency-Key per logical operation." });
+    }
 
     // TODO(you): shape `input` to match your chosen CAPABILITY_ID (see https://www.settlemesh.io/agent.md).
     try {
-      const r = await invokeCapability(CAPABILITY_ID, input, payer);
+      const r = await invokeCapability(CAPABILITY_ID, input, payer, idempotencyKey);
       if (r.status >= 400) {
-        // Nothing was delivered, so nothing is charged. Return a clean error.
-        return sendJSON(res, r.status, { error: "action_failed", detail: r.json });
+        return sendJSON(res, r.status, {
+          error: "action_failed",
+          detail: r.json,
+          settlement_status: "unknown",
+          idempotency_key: idempotencyKey,
+          message: "The action did not complete here. Reconcile this operation before starting another.",
+        });
       }
       const data = unwrap(r.json);
+      const capture = captureEvidence(r.headers);
       return sendJSON(res, 200, {
         ok: true,
         result: data,
-        cost_aev: extractCost(r.json), // actual charge if the platform reported one
+        captured_aev: capture.captured_aev,
+        settlement_status: capture.settlement_status,
+        idempotency_key: idempotencyKey,
         estimate_aev: PRICE_AEV,
         currency: "aev",
       });
     } catch (e) {
-      return sendJSON(res, 502, { error: "action_error", message: String((e && e.message) || e) });
+      return sendJSON(res, 502, {
+        error: "action_error",
+        message: "Network/provider outcome is unknown. Reconcile this operation before starting another. " + String((e && e.message) || e),
+        settlement_status: "unknown",
+        idempotency_key: idempotencyKey,
+      });
     }
   }
 

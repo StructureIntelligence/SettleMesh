@@ -21,3 +21,11 @@ jobs:
           sudo apt-get install --yes ripgrep
       - name: Check confirmation language
         run: bash scripts/check-confirmation-language.sh
+      - name: Check money settlement truth
+        run: bash scripts/check-money-settlement-truth.sh
+      - name: Check template JavaScript syntax
+        run: |
+          node --check templates/ai-saas-paid-api/server.js
+          node --check templates/ai-saas-paid-api/public/app.js
+          node --check templates/auth-payments-minimal/server.js
+          node --check templates/auth-payments-minimal/public/app.js

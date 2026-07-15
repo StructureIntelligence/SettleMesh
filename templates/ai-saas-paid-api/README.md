@@ -9,7 +9,8 @@ platform bills the user. SettleMesh is the launch layer for agent-built apps (a 
 StructureIntelligence Inc.): `settlemesh deploy` ships an app with SettleMesh OAuth login, a managed
 database, metered usage billing, and end-user payments.
 
-> **Aev** is SettleMesh prepaid credit (1 USD = 100 Aev), funded by the user via Stripe.
+> **Aev** is SettleMesh prepaid credit (1 USD = 100 Aev). Card funding is offered only when the live
+> server reports its Legal/provider gates available; this template does not assume live funding.
 
 ## Quickstart
 
@@ -30,8 +31,9 @@ That's it — you get a live `*.run.settlemesh.io` URL with login and per-use bi
   the `X-Settle-Payer` header. You never bill yourself for a user's action. The markup you earn on top of
   upstream cost is declared once in `settlemesh.json` (`stack.billing.markup`, e.g. `1.3`); the platform
   validates and applies it (markup must be in `1.0`–`1.5`).
-- **Payments** — when a user is out of Aev, the call returns `402` and the UI points them at the hosted
-  Stripe top-up checkout (`/__settle/billing`); they add credit and run again.
+- **Payments** — when a user is out of Aev, the call returns `402`. The UI offers a funding link only
+  when that live response includes one; otherwise it reports funding unavailable instead of bypassing
+  Legal/provider gates.
 - **Managed database** *(optional)* — SettleMesh provisions one if your app needs it. This minimal
   template keeps no server-side state, so it doesn't use one — add it when you need to store history.
 
@@ -50,8 +52,9 @@ login gate), then calls `POST /v1/capabilities/{id}/invoke` with the app's runti
   agent guide: <https://www.settlemesh.io/agent.md>. There is a clearly-marked `TODO(confirm against agent.md)`
   at that line — do not guess the body.
 - **Change your markup** — edit `stack.billing.markup` in `settlemesh.json` (allowed range `1.0`–`1.5`).
-- **Change the displayed estimate** — set `PRICE_ESTIMATE_AEV` (UI hint only; the real charge comes from
-  the platform and is echoed back after the call).
+- **Change the displayed estimate** — set `PRICE_ESTIMATE_AEV` (UI hint only). The template calls an
+  amount captured only when the explicit platform `x-settle-charged-aev` post-capture header is present;
+  missing/unknown evidence keeps the same operation identity for reconciliation.
 
 ## Badge
 
