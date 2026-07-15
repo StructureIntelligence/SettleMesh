@@ -2,7 +2,7 @@
 
 Read this before using SettleMesh from Codex, Cursor, Claude Code, CI, or another agent runtime.
 
-> **Step 0 — log in before anything else: `settlemesh login`.** Right after installing (`npm install -g settlemesh@latest`), authenticate FIRST — a human approves once in the browser and the session is reused. You CAN `settlemesh search` the catalog anonymously to discover what's available, but **calling a paid tool, deploying, publishing, generating an image/video, lending compute, or anything that bills requires login** (or `SETTLE_API_KEY`); such a call otherwise fails with `run settlemesh login`. After login the CLI prints a short list of what SettleMesh can do — or run `settlemesh recipes` any time.
+> **Step 0 — discover before auth.** After installing (`npm install -g settlemesh@latest`), use anonymous `settlemesh search` / `show` and other public read-only GET surfaces first — they work without login so you can learn the catalog and contracts. Login (`settlemesh login`) or `SETTLE_API_KEY` is required only when an operation contract needs auth (quote via `POST /v1/billing/quote`, paid invoke, deploy/publish, or user-private state); those calls otherwise fail with `run settlemesh login`. There is no manual approval queue for ordinary discovery or mechanical publish. A human approves login once in the browser and the session is reused. After login the CLI prints a short list of what SettleMesh can do — or run `settlemesh recipes` any time.
 
 ## First Time: Localize This Guide (do this once)
 
@@ -10,14 +10,15 @@ If you are an agent reading this for the first time:
 
 1. Save this file into the project as `agent.md` — run `settlemesh agent-md --save`, or fetch `https://api.settlemesh.io/agent.md` (the same `api.` host you call at runtime).
 2. Create a skill / rule in your runtime that says: **"For any SettleMesh task, read `./agent.md` first."** (Claude Code: a skill; Cursor: a rule; Codex/CI: a line in your project instructions.)
-3. Authenticate once: run `settlemesh login` — a human approves in the browser. The CLI then reuses the stored session; no further login is needed.
-4. Print the shortest reliable path for any task with `settlemesh recipes`.
+3. Discover first: anonymous `settlemesh search` / `show` (and other public read-only GET surfaces) work without login — use them before authenticating.
+4. Authenticate only when an operation contract needs auth: run `settlemesh login` (or set `SETTLE_API_KEY`) for quote (`POST /v1/billing/quote`), paid invoke, deploy/publish, or user-private state — a human approves in the browser; the CLI reuses the stored session.
+5. Print the shortest reliable path for any task with `settlemesh recipes`.
 
-From then on every SettleMesh task starts from your local `agent.md` and an already-authenticated CLI — no re-deriving how the platform works.
+From then on every SettleMesh task starts from your local `agent.md` — discover anonymously when you can, authenticate when the contract requires it — no re-deriving how the platform works.
 
 ## Core Rule
 
-SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. Paid calls use Aev. **Ordinary authenticated paid invocations, deploys, and mechanical publishes proceed without a duplicate confirmation**: a direct, scoped user request authorizes them and applicable Aev billing is handled automatically. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or Legal-required actions. A user's first request like "delete X" is intent, not confirmation for those exceptional actions. Do not add `--confirm` / `?confirm=true` until a separate human confirmation turn names the exact resource and effect. First identify the target, show what would happen, and stop. If the target is missing or already absent, report that result without using `--confirm`.
+SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. Search first, inspect the service or tool contract, quote the exact paid call, then call it. Paid calls use Aev. A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. A user's first request like "delete X" is intent, not confirmation for those exceptional actions. Do not add `--confirm` / `?confirm=true` until a separate human confirmation turn names the exact resource and effect. First identify the target, show what would happen, and stop. If the target is missing or already absent, report that result without using `--confirm`.
 
 **Catalog shape.** Search returns groups and units. Service groups are not callable — invoke a unit (capability/entrypoint id), never a group id. Canonical read models are UnitDocument / GroupDetail; a publish manifest/card is the write-side artifact for `services upload`, while the legacy ServiceCard is a compatibility adapter only (not the call target model).
 
@@ -127,7 +128,7 @@ settlemesh show <service-id> --json
 settlemesh tool show <tool-id> --json
 ```
 
-Then quote the exact paid call before invoking:
+Then quote the exact paid call before invoking. Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous):
 
 ```bash
 settlemesh quote web.search --input '{"q":"SettleMesh"}' --json
@@ -144,7 +145,7 @@ settlemesh call image.gpt-image-2 --input '{"prompt":"a glass city at sunrise"}'
 settlemesh call video.veo-3.1 --input '{"prompt":"a glass city at sunrise, slow aerial push-in"}' --wait --json
 ```
 
-Use `--wait` for async jobs. Use `--confirm` only after explicit human confirmation for destructive, high-impact, authorization-expanding, truly irreversible, or Legal-required actions that name the exact target and effect; a user asking "delete X" is intent, not confirmation — first show the exact target/effect and stop for confirmation. `settlemesh tool call` remains a compatible alias, but new agents should teach and use `settlemesh call <entrypoint-id>`. Always parse JSON defensively. Result URLs or payloads may appear in `data.result`, `data.results`, `data.output`, `output`, `url`, `urls`, or nested arrays/objects.
+Use `--wait` for async jobs. Use `--confirm` only after explicit human confirmation for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions that name the exact target and effect; a user asking "delete X" is intent, not confirmation — first show the exact target/effect and stop for confirmation. `settlemesh tool call` remains a compatible alias, but new agents should teach and use `settlemesh call <entrypoint-id>`. Always parse JSON defensively. Result URLs or payloads may appear in `data.result`, `data.results`, `data.output`, `output`, `url`, `urls`, or nested arrays/objects.
 
 ### Async jobs — poll the *per-model* detail capability (don't guess it)
 
@@ -174,7 +175,7 @@ settlemesh aev ledger --limit 20 --json
 settlemesh aev topup --aev 500 --json    # requests a top-up flow; live availability is gated
 ```
 
-**Legal/payment availability.** Legal/compliance status is unverified: treat live Stripe, top-up, and merchant checkout availability as **UNABLE, never PASS**, until the live server returns a verified Legal/provider-ready state. Command help does not prove live payment availability. Do not infer live Stripe or top-up availability from the presence of a command or example.
+**Legal/payment availability.** Legal/compliance status is unverified: treat live Stripe, top-up, and merchant checkout availability as **UNABLE, never PASS**, until the live server returns a verified Legal/provider-ready state. Legal-required operations are blocked by the Legal gate; confirmation cannot turn an unavailable Legal state into PASS. Command help does not prove live payment availability. Do not infer live Stripe or top-up availability from the presence of a command or example.
 
 **The live quote is the authority for whether a call is free or paid.** Do not assume a first-call promotion from cached documentation. A terminal failed call releases its hold. A timeout, pending response, or unknown provider outcome is not terminal failure: keep the same idempotency key and reconcile instead of assuming release or retrying as a new charge.
 

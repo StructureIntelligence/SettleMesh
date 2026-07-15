@@ -11,6 +11,12 @@ canonical_invoke='The canonical HTTP invoke path is `POST /v1/capabilities/{id}/
 automatic_publication='Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue.'
 card_containment='Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available.'
 
+# Core contract sentences required in agent.md + llms.txt (discover-before-auth, authenticated quote, Legal independence).
+discover_before_auth='use anonymous `settlemesh search` / `show` and other public read-only GET surfaces first — they work without login so you can learn the catalog and contracts'
+authenticated_quote='Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
+legal_independence='confirmation cannot turn an unavailable Legal state into PASS'
+deployment_availability='subject to live server/preflight availability'
+
 projections=(
   agent.md
   llms.txt
@@ -42,6 +48,11 @@ contract_projections=(
   "${journey_projections[@]}"
 )
 
+core_contract_projections=(
+  agent.md
+  llms.txt
+)
+
 failed=0
 
 require_text() {
@@ -52,6 +63,194 @@ require_text() {
     failed=1
   fi
 }
+
+# Context-aware forbidden-policy matcher (case-insensitive).
+# Returns 0 when text contains a rejected claim; 1 when clean.
+# Intentionally does NOT reject correct discover-first → login-once sequencing
+# or explicit "not anonymous" / authenticated-quote wording.
+text_has_forbidden_policy() {
+  local text="$1"
+
+  # Quote works/is available anonymously; anonymous/unauthenticated users can quote;
+  # quote without login/auth; anonymous quote / quote is anonymous.
+  # Allow lines that only deny anonymity ("not anonymous", "not an anonymous quote").
+  if printf '%s\n' "$text" | rg -qi \
+    -e 'quotes?\s+(works?|is\s+available)\s+anonymously' \
+    -e '(anonymous|unauthenticated)\s+users?\s+can\s+(get\s+)?quotes?' \
+    -e 'quotes?\s+without\s+(login|auth)\b' \
+    -e 'quotes?\s+is\s+anonymous\b'; then
+    return 0
+  fi
+  # Match the claim itself rather than filtering its whole line.  Otherwise a
+  # later denial on the same line can hide an earlier forbidden claim.
+  if printf '%s\n' "$text" | rg -Pqi -- \
+    '(?<!not )(?<!not an )\banonymous\s+quotes?\b'; then
+    return 0
+  fi
+
+  # Login/authenticate before search/show/discover, or login then search.
+  # Does NOT match "search/show/discover first, then login once before quote/invoke"
+  # or bare "run settlemesh login once" without a discovery reordering.
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\b(log[[:space:]]*in|login|authenticate[ds]?)\b.{0,120}?\b(before|then)[[:space:]]+(search|show|discover)\b'; then
+    return 0
+  fi
+
+  # First-call-free guarantees.
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\bfirst[[:space:]]+call[[:space:]]+free\b' \
+    -e '\bfirst-call[[:space:]]+free\b' \
+    -e '\bfirst[[:space:]]+call[[:space:]]+to[[:space:]]+each[[:space:]]+official[[:space:]]+capability[[:space:]]+is[[:space:]]+free\b' \
+    -e '\bfirst[[:space:]]+calls?[[:space:]]+are[[:space:]]+free\b' \
+    -e '\bfirst[[:space:]]+call[[:space:]]+is[[:space:]]+free\b'; then
+    return 0
+  fi
+
+  # Confirmation bypasses Legal / makes Legal available.
+  # Does NOT match "confirmation cannot turn an unavailable Legal state into PASS".
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\bconfirmation[[:space:]]+bypasses[[:space:]]+Legal\b' \
+    -e '\bconfirmation[[:space:]]+makes[[:space:]]+Legal[[:space:]]+available\b'; then
+    return 0
+  fi
+
+  # Unqualified Stripe/card/top-up availability claims.
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\bfunded[[:space:]]+(via|by[[:space:]]+card[[:space:]]+via)[[:space:]]+Stripe\b' \
+    -e '\b(card[[:space:]]+top-?up|live[[:space:]]+Stripe|Stripe[[:space:]]+top-?up)[[:space:]]+is[[:space:]]+available\b' \
+    -e '\bunconditional[[:space:]]+Stripe\b'; then
+    return 0
+  fi
+  if printf '%s\n' "$text" | rg -i -n -- 'card[[:space:]]+funding[[:space:]]+is[[:space:]]+available' \
+    | rg -iv -- 'do[[:space:]]+not[[:space:]]+claim[[:space:]]+card[[:space:]]+funding[[:space:]]+is[[:space:]]+available' >/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
+# In-memory self-test (printf | rg fixtures only — no persistent files).
+# Proves regex catches bad + nearby-good contradictions and accepts good sequencing.
+run_self_tests() {
+  local st_failed=0
+
+  assert_rejects() {
+    local name="$1"
+    local text="$2"
+    if ! text_has_forbidden_policy "$text"; then
+      printf 'self-test FAIL (expected reject): %s\n  text: %s\n' "$name" "$text" >&2
+      st_failed=1
+    fi
+  }
+
+  assert_allows() {
+    local name="$1"
+    local text="$2"
+    if text_has_forbidden_policy "$text"; then
+      printf 'self-test FAIL (expected allow): %s\n  text: %s\n' "$name" "$text" >&2
+      st_failed=1
+    fi
+  }
+
+  # --- Positive mutation cases (must reject) ---
+  assert_rejects 'quote works anonymously' \
+    'Quote works anonymously for any caller.'
+  assert_rejects 'quote is available anonymously' \
+    'The quote is available anonymously without a key.'
+  assert_rejects 'anonymous users can get quotes' \
+    'Anonymous users can get quotes from the billing API.'
+  assert_rejects 'unauthenticated users can quote' \
+    'Unauthenticated users can quote paid tools.'
+  assert_rejects 'unauthenticated users can get quotes' \
+    'unauthenticated users can get quotes before login'
+  assert_rejects 'quote without login' \
+    'You can quote without login on this platform.'
+  assert_rejects 'quote without auth' \
+    'Agents may quote without auth.'
+  assert_rejects 'anonymous quote' \
+    'Use the anonymous quote path for discovery.'
+  assert_rejects 'quote is anonymous' \
+    'Billing quote is anonymous under the current contract.'
+  assert_rejects 'login before search' \
+    'Always login before search.'
+  assert_rejects 'authenticate before show' \
+    'Authenticate before show for every task.'
+  assert_rejects 'login before discover' \
+    'Login before discover, then inspect contracts.'
+  assert_rejects 'login then search' \
+    'run settlemesh login then search the catalog'
+  assert_rejects 'login once then search' \
+    'login once (a human approves in the browser), then search'
+  assert_rejects 'first call free' \
+    'The first call free for every official tool.'
+  assert_rejects 'first-call free' \
+    'Enjoy first-call free usage forever.'
+  assert_rejects 'first call capability free' \
+    'first call to each official capability is free'
+  assert_rejects 'first call is free' \
+    'Your first call is free.'
+  assert_rejects 'confirmation bypasses Legal' \
+    'confirmation bypasses Legal gates after the user agrees'
+  assert_rejects 'confirmation makes Legal available' \
+    'confirmation makes Legal available for Stripe'
+  assert_rejects 'funded via Stripe' \
+    'Aev is funded via Stripe.'
+  assert_rejects 'funded by card via Stripe' \
+    'Balance is funded by card via Stripe.'
+  assert_rejects 'card top-up is available' \
+    'card top-up is available in production'
+  assert_rejects 'live Stripe is available' \
+    'live Stripe is available today'
+  assert_rejects 'Stripe top-up is available' \
+    'Stripe top-up is available for all accounts'
+  assert_rejects 'unconditional Stripe' \
+    'unconditional Stripe funding is fine to claim'
+  assert_rejects 'card funding is available' \
+    'card funding is available without gates'
+
+  # Nearby contradiction: correct discover guidance next to a bad quote claim.
+  assert_rejects 'nearby good+bad quote contradiction' \
+    'Discover with anonymous settlemesh search / show first. Also, quote works anonymously.'
+  assert_rejects 'anonymous quote followed by nearby denial' \
+    'Use the anonymous quote path. Billing quote is not anonymous.'
+  assert_rejects 'nearby good+bad login-then-search' \
+    'Use public GET surfaces first — but login once (a human approves in the browser), then search.'
+
+  # --- Negative mutation cases (must allow) ---
+  assert_allows 'authenticated not anonymous' \
+    'POST /v1/billing/quote is authenticated — not anonymous'
+  assert_allows 'quote requires login not anonymous' \
+    'Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
+  assert_allows 'not an anonymous quote' \
+    'This is not an anonymous quote; auth is required.'
+  assert_allows 'discover then login once before quote' \
+    'discover/search/show first, then login once before authenticated quote/invoke'
+  assert_allows 'search show first then login once' \
+    'use anonymous settlemesh search / show first — they work without login so you can learn the catalog. Run settlemesh login once when the contract needs auth for quote or invoke.'
+  assert_allows 'login once bare (no reordering)' \
+    'A human approves in the browser; run settlemesh login once; the CLI reuses the stored session.'
+  assert_allows 'login once before authenticated quote only' \
+    'After discovery, login once before authenticated quote or paid invoke.'
+  assert_allows 'do not claim card funding' \
+    'Card top-up is contained and Legal remains unverified; do not claim card funding is available.'
+  assert_allows 'legal independence wording' \
+    'Legal-required operations are blocked by the Legal gate; confirmation cannot turn an unavailable Legal state into PASS.'
+  assert_allows 'no first-call promotion assumption' \
+    'Do not assume a first-call promotion from cached documentation.'
+  assert_allows 'anonymous search show only' \
+    'use anonymous settlemesh search / show and other public read-only GET surfaces first — they work without login'
+
+  if (( st_failed )); then
+    printf 'confirmation-language self-test: FAIL\n' >&2
+    return 1
+  fi
+  printf 'confirmation-language self-test: PASS\n'
+  return 0
+}
+
+if ! run_self_tests; then
+  failed=1
+fi
 
 for file in "${projections[@]}"; do
   require_text "$file" "$policy"
@@ -72,21 +271,83 @@ for file in "${contract_projections[@]}"; do
   require_text "$file" "$card_containment"
 done
 
+for file in "${core_contract_projections[@]}"; do
+  require_text "$file" "$discover_before_auth"
+  require_text "$file" "$authenticated_quote"
+  require_text "$file" "$legal_independence"
+done
+
+require_text llms.txt "$deployment_availability"
+
+# Exact deprecated confirmation / tool-call wording (stable literals).
 for forbidden in \
   'Confirm before any paid / deploy / destructive action' \
   '--confirm for paid' \
   'Confirm intent before any paid, deploy, publish, or destructive action' \
   'with a confirm step before any paid call' \
   'costly, side-effecting, or destructive calls' \
-  'funded via Stripe' \
   'wait for human approval by default' \
   'enters a human approval queue by default' \
   'settlemesh tool call <tool-id>'; do
-  if rg -n -F -- "$forbidden" "${projections[@]}"; then
+  if rg -n -F -- "$forbidden" "${projections[@]}" 2>/dev/null; then
     printf 'deprecated confirmation wording remains: %s\n' "$forbidden" >&2
     failed=1
   fi
 done
+
+# Context-aware case-insensitive policy regexes over public projections.
+# Replaces brittle fixed strings for anonymous-quote, login-before-discover,
+# first-call-free, Legal/confirmation, and unqualified Stripe/card/top-up claims.
+if rg -n -i \
+  -e 'quotes?\s+(works?|is\s+available)\s+anonymously' \
+  -e '(anonymous|unauthenticated)\s+users?\s+can\s+(get\s+)?quotes?' \
+  -e 'quotes?\s+without\s+(login|auth)\b' \
+  -e 'quotes?\s+is\s+anonymous\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: anonymous/unauthenticated quote claim\n' >&2
+  failed=1
+fi
+if rg -P -n -i -- '(?<!not )(?<!not an )\banonymous\s+quotes?\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: anonymous quote claim\n' >&2
+  failed=1
+fi
+if rg -n -i \
+  -e '\b(log[[:space:]]*in|login|authenticate[ds]?)\b.{0,120}?\b(before|then)[[:space:]]+(search|show|discover)\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: login/authenticate before search/show/discover (or login then search)\n' >&2
+  failed=1
+fi
+if rg -n -i \
+  -e '\bfirst[[:space:]]+call[[:space:]]+free\b' \
+  -e '\bfirst-call[[:space:]]+free\b' \
+  -e '\bfirst[[:space:]]+call[[:space:]]+to[[:space:]]+each[[:space:]]+official[[:space:]]+capability[[:space:]]+is[[:space:]]+free\b' \
+  -e '\bfirst[[:space:]]+calls?[[:space:]]+are[[:space:]]+free\b' \
+  -e '\bfirst[[:space:]]+call[[:space:]]+is[[:space:]]+free\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: first-call-free guarantee\n' >&2
+  failed=1
+fi
+if rg -n -i \
+  -e '\bconfirmation[[:space:]]+bypasses[[:space:]]+Legal\b' \
+  -e '\bconfirmation[[:space:]]+makes[[:space:]]+Legal[[:space:]]+available\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: confirmation bypasses/makes Legal available\n' >&2
+  failed=1
+fi
+if rg -n -i \
+  -e '\bfunded[[:space:]]+(via|by[[:space:]]+card[[:space:]]+via)[[:space:]]+Stripe\b' \
+  -e '\b(card[[:space:]]+top-?up|live[[:space:]]+Stripe|Stripe[[:space:]]+top-?up)[[:space:]]+is[[:space:]]+available\b' \
+  -e '\bunconditional[[:space:]]+Stripe\b' \
+  "${projections[@]}" 2>/dev/null; then
+  printf 'deprecated policy wording remains: unqualified Stripe/card/top-up availability\n' >&2
+  failed=1
+fi
+if rg -n -i -- 'card[[:space:]]+funding[[:space:]]+is[[:space:]]+available' "${projections[@]}" 2>/dev/null \
+  | rg -iv -- 'do[[:space:]]+not[[:space:]]+claim[[:space:]]+card[[:space:]]+funding[[:space:]]+is[[:space:]]+available'; then
+  printf 'deprecated policy wording remains: card funding is available (unqualified)\n' >&2
+  failed=1
+fi
 
 for pair in \
   'rules/settlemesh.mdc:cursor/settlemesh.mdc' \
