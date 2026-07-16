@@ -509,11 +509,12 @@ publish_fee: {
   admission: {
     can_start_now: false,
     code: "publish_settlement_unavailable",
-    message: "paid publish settlement admission is unavailable"
+    message: "paid publish settlement admission is unavailable",
+    fix: "publish within the free quota or wait until atomic publish settlement admission is available"
   }
 }
 ```
-This preview is read-only: no hold, charge, or publication occurs. `fee_required` is separate from `will_charge`; never use `will_charge:false` as proof that the publish is free or fee-disabled. Branch on `admission.can_start_now`. When `admission.can_start_now:false`, follow `admission.code`, `admission.message`, and the returned Problem `fix`; do not send the publish request as a fallback. For the current `publish_settlement_unavailable` paid-admission state, the publish deterministically returns HTTP 503 before any hold, capture, or publication. Free or fee-disabled mechanical publish remains automatic once its mechanical gates pass, with no default review queue and no duplicate confirmation.
+This preview is read-only: no hold, charge, or publication occurs. `fee_required` is separate from `will_charge`; never use `will_charge:false` as proof that the publish is free or fee-disabled. Branch on `admission.can_start_now`. When `admission.can_start_now:false`, follow `admission.code`, `admission.message`, and `admission.fix`; do not send the publish request as a fallback. For the current `publish_settlement_unavailable` paid-admission state, the publish deterministically returns HTTP 503 with the same recovery fields before any hold, capture, or publication. Free or fee-disabled mechanical publish remains automatic once its mechanical gates pass, with no default review queue and no duplicate confirmation.
 
 **HTTP-only (no CLI):** the same lifecycle is REST — `POST /v1/dynamic-services` (body = the publish-manifest JSON; older clients call this a service-card) → returns `{dsvc_id}`; read `GET /v1/dynamic-services/{id}/config-status`, then use `POST /v1/dynamic-services/{id}/publish` with `{"visibility":"public"}` only when `publish_fee.admission.can_start_now` is true; `GET /v1/dynamic-services` lists records and `DELETE /v1/dynamic-services/{id}` removes one. (`PATCH /v1/dynamic-services/{id}` is a **full-replace** — send the entire manifest, or use `/publish` just to flip visibility.) In the manifest, `operations[].action` is a closed semantic enum (e.g. `read`) — **not** an HTTP verb; if a value is rejected, derive it from `settlemesh services init <openapi>` rather than guessing the field shape.
 

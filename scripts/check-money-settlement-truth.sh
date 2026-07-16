@@ -224,9 +224,15 @@ require_text agent.md \
 require_text agent.md \
   'paid publish admission reports its stable unavailable code' \
   '`publish_settlement_unavailable`'
+require_text agent.md \
+  'paid publish admission exposes its stable recovery field' \
+  '`admission.fix`'
+require_text agent.md \
+  'paid publish admission exposes its current recovery action' \
+  'publish within the free quota or wait until atomic publish settlement admission is available'
 require_pattern agent.md \
   'paid publish fails before money or publication effects' \
-  'http 503 before any hold, capture, or publication'
+  'http 503.{0,120}before any hold, capture, or publication'
 reject_pattern \
   'will_charge false is falsely presented as proof of a free publish' \
   '`will_charge:false` means you are still inside the free publish quota or the fee is disabled' \
