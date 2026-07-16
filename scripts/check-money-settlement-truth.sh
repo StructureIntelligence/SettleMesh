@@ -228,8 +228,14 @@ require_text agent.md \
   'paid publish admission exposes its stable recovery field' \
   '`admission.fix`'
 require_text agent.md \
-  'positive-quota recovery has exact count, list, reversible visibility command, and target readback' \
-  'run `settlemesh services list --json`; make at least 1 existing shared service entry private with `settlemesh services publish <existing-service-id> --visibility private --json`; then rerun `settlemesh services config-status <id> --json`'
+  'positive-quota recovery is inspection-only until named-service authorization' \
+  'inspection only: run `settlemesh services list --json`; freeing 1 shared service entry requires high-impact visibility changes and confirmation_required; obtain a separate explicit request naming each affected service before running `settlemesh services publish <explicitly-authorized-existing-service-id> --visibility private --json`; after the authorized changes, rerun `settlemesh services config-status <id> --json`'
+require_text agent.md \
+  'existing-service authorization does not add confirmation to ordinary publish' \
+  'This separate authorization applies only to changing existing services; the ordinary publish itself still needs no duplicate confirmation.'
+require_text agent.md \
+  'new site recovery never reads an unpersisted dynamic service' \
+  'A rejected first-time `sites publish` has no persisted service record: its fix never sends you to dynamic-service config-status, says that no site record was created, and gives the site-specific publish command to retry after the stated prerequisite.'
 require_text agent.md \
   'zero-quota recovery remains unable and private until settlement admission exists' \
   'With a zero free quota, shared publish is currently `UNABLE`, the service stays private, and the fix gives the exact config-status readback to run after atomic settlement admission is enabled.'
@@ -245,6 +251,10 @@ require_pattern agent.md \
 reject_pattern \
   'generic publish recovery hides quota-specific actions' \
   'publish within the free quota or wait until atomic publish settlement admission is available' \
+  agent.md
+reject_pattern \
+  'positive-quota recovery changes visibility without named-service authorization' \
+  'make at least 1 existing shared service entry private with `settlemesh services publish <existing-service-id> --visibility private --json`' \
   agent.md
 reject_pattern \
   'will_charge false is falsely presented as proof of a free publish' \
