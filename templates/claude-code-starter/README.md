@@ -1,13 +1,13 @@
 # Claude Code Starter
 
-The simplest "an agent writes it, SettleMesh ships it" starter: a tiny Next.js app
-with SettleMesh OAuth login and a managed database, ready to deploy.
+The simplest SettleMesh deployment-contract starter: a tiny Next.js app prepared
+for SettleMesh OAuth login and a managed database.
 
 **The differentiator:** SettleMesh is the launch layer for agent-built apps. You get
 login, a database, usage metering, and end-user payments without writing billing
 code — charge your users per use, and SettleMesh handles the money.
 
-> **Aev** is SettleMesh prepaid credit (1 USD = 100 Aev), funded via Stripe.
+> **Aev** is SettleMesh prepaid credit (1 USD = 100 Aev). Funding remains Legal/provider-gated and must not be assumed available.
 
 ## Quickstart
 
@@ -15,8 +15,11 @@ code — charge your users per use, and SettleMesh handles the money.
 npm i -g settlemesh
 git clone <this repo>
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
+
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. When authorization becomes available and both checks allow it, the intended owner command is `settlemesh deploy . --full-stack --wait --json`.
 
 ## What you get
 

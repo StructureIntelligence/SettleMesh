@@ -3,14 +3,15 @@
 This is a tiny Next.js app meant to be built by a coding agent and shipped on
 SettleMesh (a product of StructureIntelligence Inc.).
 
-## How to deploy
+## Check deployment readiness
 
 ```
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
 
-That's it. `settlemesh deploy` reads `settlemesh.json` and ships the app with:
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable`. Do not claim a build, charge, publication, or live URL. When authorization becomes available and both checks allow it, the intended command is `settlemesh deploy . --full-stack --wait --json`; the deployment contract then includes:
 
 - **SettleMesh OAuth login** in `lazy` mode — sign-in only happens when the user
   clicks. Auth endpoints `/__settle/login`, `/__settle/logout`, and `/__settle/me`

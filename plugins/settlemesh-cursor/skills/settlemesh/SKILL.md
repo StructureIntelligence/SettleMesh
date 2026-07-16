@@ -1,11 +1,11 @@
 ---
 name: settlemesh
-description: Deploy and monetize an agent-built app with SettleMesh — SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments in one command. Use when the user wants to ship or deploy an app, add auth or a database, charge users per use, or build an AI/API app that bills its end users (end-user-pays).
+description: Discover SettleMesh capabilities and prepare or observe app deployments. Production deployment authorization is currently unavailable, so new source deploys fail closed; use availability, preflight, and existing-resource readbacks without claiming a new live URL.
 ---
 
-# SettleMesh — deploy and monetize an app
+# SettleMesh — capabilities and deployment readiness
 
-SettleMesh turns an app into a paid product in one command: SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments — no auth/billing/deploy glue to write. It is also an agent capability layer: one key calls web search/scrape, LLMs, image/video generation, a managed SQL database, and hosted agents — every call metered, with a cost quote up front.
+SettleMesh is an agent capability layer with an intended app runtime contract for login, managed data, and usage billing. Production deployment authorization is currently unavailable: `app_deployments.create` is disabled, and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or creation of a live URL. Existing app records remain observable, but observing one does not authorize a new release.
 
 ## Setup (once)
 
@@ -13,23 +13,28 @@ SettleMesh turns an app into a paid product in one command: SettleMesh OAuth log
 2. Start with `settlemesh search "<task>"` to discover the public catalog. Run `settlemesh login` (a human approves once in the browser) — or set `SETTLE_API_KEY=sk-settle-...` for headless/CI — only when the selected action needs an account.
 3. The full agent contract lives at `https://www.settlemesh.io/agent.md` — fetch it for the complete recipe set, then `settlemesh recipes` for the shortest path to any task.
 
-**No card flow is needed to discover and quote:** public search/show and quote are read-only. Invoke only after reading the selected entrypoint's availability and price. If available Aev is insufficient while card top-up is contained, stop and report that the paid action cannot proceed in this profile.
+**No card flow is needed to discover:** public search/show are anonymous and read-only. Quote via `POST /v1/billing/quote` is authenticated but read-only. Invoke only after reading the selected entrypoint's availability and price. If available Aev is insufficient while card top-up is contained, stop and report that the paid action cannot proceed in this profile.
 
 ## Core rule
 
-SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. **Search → show → quote → call.** A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. The canonical HTTP invoke path is `POST /v1/capabilities/{id}/invoke`; `POST /v1/tools/{id}/call` is a compatibility alias only. Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue. Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available.
+SettleMesh is a searchable service layer. Do not memorize provider-specific endpoints. **Search → show → quote → call.** A direct user request authorizes ordinary paid invocation, deploy, and mechanical publish without a duplicate confirmation. Quote/preflight informs cost and availability; it is not a second confirmation. Ask for a separate confirmation only for destructive, high-impact, authorization-expanding, truly irreversible, or explicitly `requires_confirmation` actions. The canonical HTTP invoke path is `POST /v1/capabilities/{id}/invoke`; `POST /v1/tools/{id}/call` is a compatibility alias only. Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue. For source deployment, that target policy applies only after deployment authorization is available; it does not turn today's denial into a queue or a success. Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available.
 
-## Deploy an app
+## Check deployment readiness
 
 ```bash
-settlemesh deploy ./my-app --name my-app --full-stack --wait --json
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight ./my-app --full-stack --json
 ```
 
-Returns a live `*.run.settlemesh.io` URL — read it from the deploy output (the #1 source of confusion). Add `--auth required` to gate the whole app behind SettleMesh login, or leave auth lazy.
+Read the tool's `availability` and preflight's `admission.can_start_now`, `code`, `message`, and `fix`. Current production reports `deployment_authorization_unavailable`; stop without running the deploy mutation. Preflight uploads no source and creates no app, build, hold, publication, or URL.
+
+For ids that already exist, observe and recover with `settlemesh deploy status <app-id> --json`, `settlemesh deploy logs <build-id> --json`, and `settlemesh deploy url <app-id> --json`. Existing status or URL readback is not evidence that a new release can start.
+
+When deployment authorization becomes available and both checks allow the operation, the intended owner command is `settlemesh deploy ./my-app --name my-app --full-stack --wait --json`. Report a live URL only from a successful serving response or URL readback; never construct one.
 
 ## Charge end users (end-user-pays)
 
-An app can charge the signed-in end user's own Aev balance instead of the developer's by attaching the `X-Settle-Payer` header. Pricing is cost-plus with a quote before spend (`POST /v1/billing/quote`); a failed metered call releases the hold and charges nothing.
+An already serving app with an available delegated-payer rail can charge the signed-in end user's own Aev balance instead of the developer's by attaching the `X-Settle-Payer` header. Pricing is cost-plus with a quote before spend (`POST /v1/billing/quote`). Only a terminal failed call proves release; timeout, pending, or unknown settlement must be reconciled under the same operation identity.
 
 ## Use any capability
 

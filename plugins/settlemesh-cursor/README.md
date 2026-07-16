@@ -1,7 +1,8 @@
 # SettleMesh — Cursor plugin
 
-Deploy and monetize an agent-built app in one command: SettleMesh OAuth login, a managed
-database, usage-based billing, and end-user payments. Bundles the SettleMesh MCP server so
+Discover and invoke SettleMesh capabilities, inspect deployment readiness, and observe existing
+deployments. Production deployment authorization is currently unavailable: `app_deployments.create`
+is disabled and source deploy fails closed with `deployment_authorization_unavailable`. The plugin bundles the SettleMesh MCP server so
 Cursor can search and invoke the full capability catalog (web search/scrape, LLMs, image/video,
 managed SQL, hosted agents) — every call metered, with a cost quote up front.
 

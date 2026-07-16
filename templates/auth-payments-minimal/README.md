@@ -11,11 +11,11 @@ The "hello world" of paid apps — login plus one paid action, billed straight t
 npm i -g settlemesh
 git clone <this repo>
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
 
-`settlemesh deploy` ships the app, wires up SettleMesh OAuth login, and injects the server-side
-`SETTLEMESH_APP_API_KEY` so the runtime key never touches the browser.
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. When authorization becomes available and both checks allow it, the intended command is `settlemesh deploy . --full-stack --wait --json`; a successful authorized deployment injects `SETTLEMESH_APP_API_KEY` server-side so the runtime key never touches the browser.
 
 ## What you get
 

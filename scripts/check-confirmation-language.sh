@@ -62,6 +62,28 @@ core_contract_projections=(
   llms.txt
 )
 
+deploy_truth_projections=(
+  README.md
+  agent.md
+  llms.txt
+  llms-install.md
+  commands/deploy.md
+  plugins/settlemesh/commands/deploy.md
+  rules/settlemesh.mdc
+  cursor/settlemesh.mdc
+  plugins/settlemesh-cursor/rules/settlemesh.mdc
+  skills/settlemesh/SKILL.md
+  plugins/settlemesh/SKILL.md
+  plugins/settlemesh-cursor/skills/settlemesh/SKILL.md
+  plugins/settlemesh-codex/skills/settlemesh/SKILL.md
+  templates/agent-webapp-demo/README.md
+  templates/claude-code-starter/README.md
+  templates/claude-code-starter/CLAUDE.md
+  templates/ai-saas-paid-api/README.md
+  templates/auth-payments-minimal/README.md
+  templates/paid-tool-api/README.md
+)
+
 failed=0
 
 require_text() {
@@ -156,6 +178,33 @@ text_has_false_cleanup_claim() {
   fi
 
   return 1
+}
+
+# Reject an unqualified promise that a source-deploy command creates a live URL
+# or paid product. Conditional target-policy wording, existing-resource readback,
+# and explicit negative statements remain valid.
+text_has_false_deploy_claim() {
+  local text="$1"
+
+  if ! printf '%s\n' "$text" | rg -qi \
+    -e '\b(one[[:space:]]+command|one[[:space:]]+deploy)\b.{0,140}\b(turns?|makes?|creates?)\b.{0,140}\b(live|paid)[[:space:]]+(app|product|url)\b' \
+    -e '\bsettlemesh[[:space:]]+deploy\b.{0,160}\b(ships?|provisions?|wires?|gives?|returns?)\b.{0,160}\b(live[[:space:]]+url|paid[[:space:]]+product|login|database|billing)\b' \
+    -e '\bdeploy\b.{0,140}\b(to|returns?|gives?|→)[[:space:]]+(a[[:space:]]+)?live[[:space:]]+([^[:space:]]+[[:space:]]+)?url\b' \
+    -e '\bdeploy[[:space:]]+and[[:space:]]+monetize\b.{0,140}\bone[[:space:]]+command\b'; then
+    return 1
+  fi
+
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\b(when|after|once|if|only[[:space:]]+if)\b.{0,120}\b(authorization|admission|availability|gate)\b.{0,100}\b(available|allows?|ready|restored)\b' \
+    -e '\bsubject[[:space:]]+to\b.{0,100}\bavailability\b' \
+    -e '\b(target|intended|future)[[:space:]]+(product[[:space:]]+)?(policy|command|contract|pipeline)\b' \
+    -e '\b(existing|already[[:space:]]+serving)\b.{0,100}\b(app|deployment|status|url|readback)\b' \
+    -e '\b(does[[:space:]]+not|do[[:space:]]+not|cannot|never|will[[:space:]]+not)\b.{0,140}\b(live|url|deploy|deployment)\b' \
+    -e '\b(not[[:space:]]+(evidence|proof)|fails?[[:space:]]+closed)\b'; then
+    return 1
+  fi
+
+  return 0
 }
 
 # In-memory self-test (printf | rg fixtures only — no persistent files).
@@ -282,6 +331,31 @@ run_self_tests() {
     st_failed=1
   fi
 
+  if ! text_has_false_deploy_claim 'One command turns an app into a live, paid product.'; then
+    printf 'self-test FAIL (expected reject): unqualified one-command deploy promise\n' >&2
+    st_failed=1
+  fi
+  if ! text_has_false_deploy_claim '`settlemesh deploy` ships the app and returns a live URL.'; then
+    printf 'self-test FAIL (expected reject): unqualified live URL promise\n' >&2
+    st_failed=1
+  fi
+  if ! text_has_false_deploy_claim '`settlemesh deploy` returns a live URL. Current deployment authorization is unavailable.'; then
+    printf 'self-test FAIL (expected reject): later denial must not repair earlier promise\n' >&2
+    st_failed=1
+  fi
+  if text_has_false_deploy_claim 'When deployment authorization is available, the intended `settlemesh deploy` command returns a server-issued live URL after a successful serving readback.'; then
+    printf 'self-test FAIL (expected allow): conditional target deploy contract\n' >&2
+    st_failed=1
+  fi
+  if text_has_false_deploy_claim '`settlemesh deploy` does not return a live URL while authorization is unavailable.'; then
+    printf 'self-test FAIL (expected allow): explicit unavailable denial\n' >&2
+    st_failed=1
+  fi
+  if text_has_false_deploy_claim 'For an existing app, `settlemesh deploy url` returns a URL readback; this is observation and not evidence that a new release can start.'; then
+    printf 'self-test FAIL (expected allow): existing-resource observation\n' >&2
+    st_failed=1
+  fi
+
   if (( st_failed )); then
     printf 'confirmation-language self-test: FAIL\n' >&2
     return 1
@@ -320,6 +394,17 @@ for file in "${core_contract_projections[@]}"; do
 done
 
 require_text llms.txt "$deployment_availability"
+
+for file in "${deploy_truth_projections[@]}"; do
+  require_text "$file" "$deployment_authorization_unavailable"
+  require_text "$file" 'app_deployments.create'
+  while IFS= read -r line; do
+    if text_has_false_deploy_claim "$line"; then
+      printf 'unqualified deploy success claim remains in %s: %s\n' "$file" "$line" >&2
+      failed=1
+    fi
+  done < "$file"
+done
 
 # Exact deprecated confirmation / tool-call wording (stable literals).
 for forbidden in \

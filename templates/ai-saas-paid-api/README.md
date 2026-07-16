@@ -5,9 +5,8 @@ A pay-per-use AI app where **your end users pay for each AI call** — you write
 The signed-in user runs an AI call (an LLM text generation) and is charged for *that call* against
 **their own** Aev balance, not yours. This is the SettleMesh end-user-pays model (the `X-Settle-Payer`
 header): the app authenticates with its own runtime key and forwards the logged-in user's session so the
-platform bills the user. SettleMesh is the launch layer for agent-built apps (a product of
-StructureIntelligence Inc.): `settlemesh deploy` ships an app with SettleMesh OAuth login, a managed
-database, metered usage billing, and end-user payments.
+platform bills the user. SettleMesh is the intended launch layer for agent-built apps (a product of
+StructureIntelligence Inc.); this template describes the runtime contract once deployment authorization is available.
 
 > **Aev** is SettleMesh prepaid credit (1 USD = 100 Aev). Card funding is offered only when the live
 > server reports its Legal/provider gates available; this template does not assume live funding.
@@ -18,10 +17,11 @@ database, metered usage billing, and end-user payments.
 npm i -g settlemesh
 git clone <this repo>
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
 
-That's it — you get a live `*.run.settlemesh.io` URL with login and per-use billing already wired.
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. When authorization becomes available and both checks allow it, the intended command is `settlemesh deploy . --full-stack --wait --json`; only a successful serving response or URL readback proves a live app.
 
 ## What you get
 

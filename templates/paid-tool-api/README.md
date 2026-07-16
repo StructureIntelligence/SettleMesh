@@ -12,10 +12,11 @@ This starter exposes a single paid endpoint (`POST /api/tool`, a text summarizer
 npm i -g settlemesh
 git clone <this repo>
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
 
-`settlemesh deploy` ships the app with SettleMesh OAuth login, a metered runtime, and your per-call billing wired up. It also injects the app's runtime key and base URL — you don't manage secrets.
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. When authorization becomes available and both checks allow it, the intended command is `settlemesh deploy . --full-stack --wait --json`; a successful authorized deployment injects the app runtime key and base URL.
 
 ## How a caller hits the paid endpoint
 
