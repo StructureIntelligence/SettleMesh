@@ -22,6 +22,9 @@ authenticated_quote='Quote requires login or `SETTLE_API_KEY` under the current 
 legal_independence='confirmation cannot turn an unavailable Legal state into PASS'
 deployment_availability='subject to live server/preflight availability'
 deployment_authorization_unavailable='deployment_authorization_unavailable'
+cleanup_response_truth='A successful delete response proves only that the confirmed user request was accepted and the app/deployment records were projected unavailable/deleted; it does not prove that every Cloud Run, E2B, Cloudflare, custom-domain, secret, or CDN resource is absent.'
+cleanup_durability_truth='Provider cleanup is a best-effort attempt in the current implementation, not a durable user-visible `teardown_pending` completion contract.'
+cleanup_recovery_truth='Treat an explicit provider absence readback as evidence only for that exact resource; otherwise keep cleanup `unknown`, preserve the app/deployment/provider identifiers, and use manual operator recovery.'
 
 projections=(
   agent.md
@@ -129,6 +132,26 @@ text_has_forbidden_policy() {
   fi
   if printf '%s\n' "$text" | rg -i -n -- 'card[[:space:]]+funding[[:space:]]+is[[:space:]]+available' \
     | rg -iv -- 'do[[:space:]]+not[[:space:]]+claim[[:space:]]+card[[:space:]]+funding[[:space:]]+is[[:space:]]+available' >/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Current production has no durable user-visible teardown_pending state machine.
+# Reject prose that turns an accepted record delete or an in-process best-effort
+# attempt into a guarantee of eventual provider cleanup.
+text_has_false_cleanup_claim() {
+  local text="$1"
+
+  if printf '%s\n' "$text" | rg -qi \
+    -e '\bqueues?[[:space:]]+(provider[[:space:]]+cleanup|Cloud Run[[:space:]]*/[[:space:]]*E2B[[:space:]]*/[[:space:]]*Cloudflare)' \
+    -e '\bcleanup[[:space:]]+(?:is[[:space:]]+)?(?:durably[[:space:]]+)?enqueued\b' \
+    -e '\bteardown_pending\b.{0,100}\buntil[[:space:]]+cleanup[[:space:]]+is[[:space:]]+confirmed\b' \
+    -e '\bdeployments?\b.{0,80}\bremains?\b.{0,80}\bteardown_pending\b.{0,100}\breclaimer\b' \
+    -e '\bfailed.{0,80}cleanup.{0,100}\boperator[[:space:]]+reclaimer\b' \
+    -e '\bproviders?\b.{0,100}\beventually\b.{0,80}\b(?:deleted|cleaned|removed)\b' \
+    -e '\b(?:all|every)[[:space:]]+(?:provider[[:space:]]+)?resources?.{0,80}\b(?:will|are guaranteed to)[[:space:]]+(?:be[[:space:]]+)?(?:deleted|cleaned|removed)\b'; then
     return 0
   fi
 
@@ -245,6 +268,19 @@ run_self_tests() {
     'Do not assume a first-call promotion from cached documentation.'
   assert_allows 'anonymous search show only' \
     'use anonymous settlemesh search / show and other public read-only GET surfaces first — they work without login'
+
+  if ! text_has_false_cleanup_claim 'Delete queues provider cleanup and every deployment remains teardown_pending until cleanup is confirmed.'; then
+    printf 'self-test FAIL (expected reject): false durable cleanup projection\n' >&2
+    st_failed=1
+  fi
+  if ! text_has_false_cleanup_claim 'Cleanup is enqueued and providers are eventually deleted by the reclaimer.'; then
+    printf 'self-test FAIL (expected reject): false eventual cleanup projection\n' >&2
+    st_failed=1
+  fi
+  if text_has_false_cleanup_claim 'The record is deleted first; provider cleanup remains unknown unless the exact provider absence readback succeeds, and manual recovery keeps the identifiers.'; then
+    printf 'self-test FAIL (expected allow): bounded cleanup truth\n' >&2
+    st_failed=1
+  fi
 
   if (( st_failed )); then
     printf 'confirmation-language self-test: FAIL\n' >&2
@@ -373,6 +409,9 @@ done
 require_text agent.md 'settlemesh apps delete <app-id> --confirm'
 require_text agent.md '428 confirmation_required'
 require_text agent.md 'agent must STOP here — never auto-pay'
+require_text agent.md "$cleanup_response_truth"
+require_text agent.md "$cleanup_durability_truth"
+require_text agent.md "$cleanup_recovery_truth"
 for required_deploy_truth in \
   'settlemesh deploy preflight . --full-stack --json' \
   'admission.can_start_now' \
@@ -393,6 +432,11 @@ for unavailable_deploy_claim in \
     failed=1
   fi
 done
+
+if text_has_false_cleanup_claim "$(<agent.md)"; then
+  printf 'agent.md still promises durable or guaranteed provider cleanup that current production does not expose\n' >&2
+  failed=1
+fi
 
 if (( failed )); then
   exit 1
