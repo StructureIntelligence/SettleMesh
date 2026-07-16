@@ -228,11 +228,24 @@ require_text agent.md \
   'paid publish admission exposes its stable recovery field' \
   '`admission.fix`'
 require_text agent.md \
-  'paid publish admission exposes its current recovery action' \
-  'publish within the free quota or wait until atomic publish settlement admission is available'
+  'positive-quota recovery has exact count, list, reversible visibility command, and target readback' \
+  'run `settlemesh services list --json`; make at least 1 existing shared service entry private with `settlemesh services publish <existing-service-id> --visibility private --json`; then rerun `settlemesh services config-status <id> --json`'
+require_text agent.md \
+  'zero-quota recovery remains unable and private until settlement admission exists' \
+  'With a zero free quota, shared publish is currently `UNABLE`, the service stays private, and the fix gives the exact config-status readback to run after atomic settlement admission is enabled.'
+require_text agent.md \
+  '503 is conditional on earlier gates and unchanged admission' \
+  'if the earlier mechanical gates pass and the admission state is unchanged'
+require_text agent.md \
+  'conditional 503 keeps recovery fields and precedes effects' \
+  'the publish returns HTTP 503 with the same recovery fields before any hold, capture, or publication'
 require_pattern agent.md \
-  'paid publish fails before money or publication effects' \
-  'http 503.{0,120}before any hold, capture, or publication'
+  'copyable publish flow branches before mutation and reads search after publish' \
+  'settlemesh services upload ./service\.json --json\s+settlemesh services config-status <id> --json\s+# continue only when publish_fee\.admission\.can_start_now is true:\s+settlemesh services publish <id> --visibility public --json\s+settlemesh search <service-id>'
+reject_pattern \
+  'generic publish recovery hides quota-specific actions' \
+  'publish within the free quota or wait until atomic publish settlement admission is available' \
+  agent.md
 reject_pattern \
   'will_charge false is falsely presented as proof of a free publish' \
   '`will_charge:false` means you are still inside the free publish quota or the fee is disabled' \

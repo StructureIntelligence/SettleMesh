@@ -493,7 +493,10 @@ settlemesh services validate ./service.json --json
 settlemesh services secrets set <id> API_KEY=...      # upstream creds, stored encrypted, never exposed
 settlemesh services env set <id> BASE_URL=...
 settlemesh services upload ./service.json --json
-settlemesh services publish <id> --visibility public --json   # then `settlemesh search` finds it
+settlemesh services config-status <id> --json
+# Continue only when publish_fee.admission.can_start_now is true:
+settlemesh services publish <id> --visibility public --json
+settlemesh search <service-id>
 ```
 
 Set per-call/per-duration/per-token pricing in the service card so callers pay Aev and you keep **100% of owner revenue** (zero platform tax; revenue paid from platform-granted promo credit arrives as non-withdrawable granted credit — spendable, not cashable). Wrapping a fixed-price platform capability? Use `pricing: {mode: platform_markup, multiplier: 1.1|1.3|1.5}` — you charge platform-cost × multiplier; you're granted the full charge and pay the platform base once, so you net platform-cost × (m−1). Caller-byok markup is unsupported. Flat pricing must be ≥ the priciest operation's platform base cost (the publish call 422s below that floor, telling you the exact number). To register an existing website as a Settle-native service, see `settlemesh sites --help`. Run `settlemesh services --help` for the full lifecycle.
@@ -510,11 +513,11 @@ publish_fee: {
     can_start_now: false,
     code: "publish_settlement_unavailable",
     message: "paid publish settlement admission is unavailable",
-    fix: "publish within the free quota or wait until atomic publish settlement admission is available"
+    fix: "run `settlemesh services list --json`; make at least 1 existing shared service entry private with `settlemesh services publish <existing-service-id> --visibility private --json`; then rerun `settlemesh services config-status <id> --json`"
   }
 }
 ```
-This preview is read-only: no hold, charge, or publication occurs. `fee_required` is separate from `will_charge`; never use `will_charge:false` as proof that the publish is free or fee-disabled. Branch on `admission.can_start_now`. When `admission.can_start_now:false`, follow `admission.code`, `admission.message`, and `admission.fix`; do not send the publish request as a fallback. For the current `publish_settlement_unavailable` paid-admission state, the publish deterministically returns HTTP 503 with the same recovery fields before any hold, capture, or publication. Free or fee-disabled mechanical publish remains automatic once its mechanical gates pass, with no default review queue and no duplicate confirmation.
+This preview is read-only: no hold, charge, or publication occurs. `fee_required` is separate from `will_charge`; never use `will_charge:false` as proof that the publish is free or fee-disabled. Branch on `admission.can_start_now`. When `admission.can_start_now:false`, follow `admission.code`, `admission.message`, and `admission.fix`; do not send the publish request as a fallback. With a positive free quota, the fix reports how many existing shared (`public` or `settle_users`) service entries must be made private, gives the non-destructive visibility command, and ends with the exact target config-status readback. With a zero free quota, shared publish is currently `UNABLE`, the service stays private, and the fix gives the exact config-status readback to run after atomic settlement admission is enabled. For the current `publish_settlement_unavailable` state, if the earlier mechanical gates pass and the admission state is unchanged, the publish returns HTTP 503 with the same recovery fields before any hold, capture, or publication. Free or fee-disabled mechanical publish remains automatic once its mechanical gates pass, with no default review queue and no duplicate confirmation.
 
 **HTTP-only (no CLI):** the same lifecycle is REST — `POST /v1/dynamic-services` (body = the publish-manifest JSON; older clients call this a service-card) → returns `{dsvc_id}`; read `GET /v1/dynamic-services/{id}/config-status`, then use `POST /v1/dynamic-services/{id}/publish` with `{"visibility":"public"}` only when `publish_fee.admission.can_start_now` is true; `GET /v1/dynamic-services` lists records and `DELETE /v1/dynamic-services/{id}` removes one. (`PATCH /v1/dynamic-services/{id}` is a **full-replace** — send the entire manifest, or use `/publish` just to flip visibility.) In the manifest, `operations[].action` is a closed semantic enum (e.g. `read`) — **not** an HTTP verb; if a value is rejected, derive it from `settlemesh services init <openapi>` rather than guessing the field shape.
 
