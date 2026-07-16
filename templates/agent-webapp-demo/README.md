@@ -8,11 +8,11 @@ A tiny full-stack web app — login, a managed database, and one paid AI action 
 npm i -g settlemesh
 git clone <this repo>
 settlemesh login
-settlemesh deploy
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight . --full-stack --json
 ```
 
-That's it — `settlemesh deploy` provisions login, the database, and metered
-billing, and gives you a live URL.
+Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. Preflight is read-only. When authorization becomes available and both checks allow it, the intended command is `settlemesh deploy . --full-stack --wait --json`; only a successful serving response or URL readback proves a live app.
 
 ## What you get
 
@@ -45,7 +45,7 @@ billing, and gives you a live URL.
 | UI | `app/page.tsx` |
 | Manifest (`framework`, auth, database, runtime_api) | `settlemesh.json` |
 
-Real keys are injected by `settlemesh deploy`; for local dev copy `.env.example`
+After a successful authorized deployment, real keys are injected by the platform; for local dev copy `.env.example`
 to `.env.local`. Never commit real values.
 
 > **Note:** the "Powered by SettleMesh" badge

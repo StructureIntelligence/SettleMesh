@@ -222,10 +222,11 @@ Start with the authenticated, read-only preflight:
 
 ```bash
 settlemesh apps doctor . --fix
+settlemesh tool show app_deployments.create --json
 settlemesh deploy preflight . --full-stack --json
 ```
 
-Read `runtime`, `admission.can_start_now`, `admission.code`, and `admission.message`. Preflight uploads no source and creates no hold, app, or reservation. Even `admission.can_start_now: true` is only a current snapshot; it does not override unavailable release authorization or guarantee a later deploy.
+Read the tool's `availability`, then preflight `runtime`, `admission.can_start_now`, `admission.code`, `admission.message`, and `admission.fix`. Production deployment authorization is currently unavailable: `app_deployments.create` is disabled and the mutation returns `deployment_authorization_unavailable`. Preflight uploads no source and creates no hold, app, or reservation. Even `admission.can_start_now: true` is only a current snapshot; it does not override unavailable release authorization or guarantee a later deploy.
 
 When release authorization becomes available, the intended owner command is `settlemesh deploy . --name my-app --full-stack --wait --json`. The target policy is automatic publication after mechanical protocol checks pass, with no default human approval queue. This is future/default product policy, not a statement that source deployment succeeds today.
 

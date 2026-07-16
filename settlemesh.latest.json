@@ -3,7 +3,7 @@
   "company": "StructureIntelligence Inc.",
   "canonicalUrl": "https://www.settlemesh.io",
   "canonicalManifest": "https://www.settlemesh.io/settlemesh.latest.json",
-  "lastVerified": "2026-07-10",
+  "lastVerified": "2026-07-17",
   "latestCliVersion": "0.1.95",
   "latestCliPublishedAt": "2026-07-09T02:38:14.385Z",
   "npmPackage": {
@@ -44,10 +44,10 @@
     "agentAppChecklist": "https://www.settlemesh.io/tools/agent-app-production-checklist"
   },
   "positioning": {
-    "oneLine": "SettleMesh is the launch layer for agent-built apps: agents can deploy full-stack apps with login, database, usage billing, and end-user payments through one CLI and MCP server.",
+    "oneLine": "SettleMesh is a capability catalog and intended launch layer for agent-built apps; production source-deployment authorization is currently unavailable and fails closed before upload, build, payment, publication, or a live URL.",
     "worksWith": ["Claude Code", "Codex", "Cursor", "OpenClaw", "Gemini CLI", "MCP-compatible clients"],
     "coreCapabilities": [
-      "full-stack app deploy",
+      "full-stack app deploy contract and existing-deployment observation",
       "SettleMesh login",
       "managed database",
       "usage billing",
@@ -71,6 +71,14 @@
       "AI app usage billing",
       "end users pay for AI app usage"
     ]
+  },
+  "deploymentAvailability": {
+    "status": "unavailable",
+    "tool": "app_deployments.create",
+    "code": "deployment_authorization_unavailable",
+    "preflight": "settlemesh deploy preflight . --full-stack --json",
+    "mutationAllowed": false,
+    "observationDoesNotAuthorizeNewRelease": true
   },
   "skills": [
     "ship-paid-app",

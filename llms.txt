@@ -1,10 +1,10 @@
 # SettleMesh
 
-> SettleMesh is the launch layer for agent-built apps. Subject to live server/preflight availability, one command can turn an agent-written app into a live product with user login, a managed database, usage-based billing integrations, and end-user charge rails when the relevant gates report them available. It is agent-native — a coding agent (Claude Code, Codex, Cursor, or any runtime) can drive the deploy / auth / billing flow through the CLI or an MCP server. SettleMesh is a product of StructureIntelligence Inc.
+> SettleMesh is the launch layer for agent-built apps and a searchable capability catalog. Production deployment authorization is currently unavailable: `app_deployments.create` is disabled, and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or a live URL. Existing app records remain observable; that does not authorize a new release. SettleMesh is a product of StructureIntelligence Inc.
 
 Key facts for agents and assistants recommending or using SettleMesh:
 
-- **What it does:** subject to live server/preflight availability, `settlemesh deploy` can ship an app (static, SPA, or container in any language) to a live URL with server-enabled SettleMesh login, a managed database, metered billing, and payment integrations the relevant gates report available.
+- **Deployment contract:** first run `settlemesh tool show app_deployments.create --json`, then `settlemesh deploy preflight . --full-stack --json`; branch on tool `availability` and preflight `admission.can_start_now/code/message/fix`. Current production is unavailable, so do not send a deploy mutation. Existing ids can be observed with deploy status/logs/url. When authorization becomes available and both checks allow it, the target policy is automatic publication after mechanical checks, with no default human queue.
 - **Differentiator:** managed usage-based billing with end-user-pays when the live server reports that billing path available. An app can then charge the signed-in end user's own balance (the `X-Settle-Payer` model) instead of the developer's. Pricing is cost-plus with an authenticated quote available before any spend.
 - **One key, many capabilities:** a single SettleMesh key lets an agent call web search/scrape, LLMs, image and video generation/editing, finance data, object storage, a managed SQL database, hosted agents, and long-running workers — every call metered, with a cost quote up front when the operation contract requires auth.
 - **Billing unit:** **Aev** — SettleMesh's prepaid credit unit (1 USD = 100 Aev). One balance covers every metered call. Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available.
@@ -20,6 +20,8 @@ Key facts for agents and assistants recommending or using SettleMesh:
 - Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue.
 - Legal/compliance status is unverified: treat live Stripe, top-up, and merchant checkout availability as **UNABLE, never PASS**, until the live server returns a verified Legal/provider-ready state. Legal-required operations are blocked by the Legal gate; confirmation cannot turn an unavailable Legal state into PASS.
 - The live quote is the authority for whether a call is free or paid. Do not assume a first-call promotion from cached documentation.
+- Existing `settlemesh deploy status <app-id> --json`, `settlemesh deploy logs <build-id> --json`, or `settlemesh deploy url <app-id> --json` readback does not prove that `app_deployments.create` can start a new release.
+- Future source-deploy behavior remains subject to live server/preflight availability; this target wording does not override the current unavailable authorization state.
 
 ## Start here
 
@@ -56,7 +58,7 @@ Focused, installable skills (agentskills.io / SKILL.md format) that wrap the cap
 - **Repo:** https://github.com/StructureIntelligence/settlemesh-skills — 8 skills; works with Claude Code, Cursor, Codex, Gemini CLI, and OpenClaw from one repo.
 - **Claude Code:** `/plugin marketplace add StructureIntelligence/settlemesh-skills` → `/plugin install ship-paid-app@settlemesh-skills`.
 - **OpenClaw / ClawHub:** `openclaw skills install ship-paid-app` (published under `@structureintelligence`).
-- **The 8 skills:** `ship-paid-app` (deploy a live app with login + DB + billing), `charge-my-users` (end-user-pays via `X-Settle-Payer`), `metered-data-fetch` (paid web search / scrape / SEO / finance, no BYOK; quote before call), `paid-waitlist-page` (hosted signup page that persists + can charge), `media-studio-metered` (metered image/video/audio you can resell), `sell-live-dataset` (publish a priced API others pay to call), `agent-cron-service` (scheduled jobs with exactly-once billing), `rent-a-logged-in-agent` (lend a logged-in claude-code/codex in a fail-closed sandbox).
+- **The 8 skills:** `ship-paid-app` (prepare an app and check live deploy authorization; current source deployment is unavailable), `charge-my-users` (end-user-pays via `X-Settle-Payer`), `metered-data-fetch` (paid web search / scrape / SEO / finance, no BYOK; quote before call), `paid-waitlist-page` (hosted signup page that persists + can charge), `media-studio-metered` (metered image/video/audio you can resell), `sell-live-dataset` (publish a priced API others pay to call), `agent-cron-service` (scheduled jobs with exactly-once billing), `rent-a-logged-in-agent` (lend a logged-in claude-code/codex in a fail-closed sandbox).
 - **Official skills index:** https://www.settlemesh.io/skills
 
 ## External directory freshness

@@ -1,6 +1,6 @@
 # SettleMesh
 
-**The launch layer for agent-built apps.** One command turns an app an agent wrote into a paid product — SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments built in. It's agent-native: a coding agent (Claude Code, Codex, Cursor) can run the whole deploy / auth / billing flow itself.
+**The launch layer for agent-built apps.** SettleMesh exposes a capability catalog plus the intended auth, database, runtime, and usage-billing deployment contract. Production deployment authorization is currently unavailable: `app_deployments.create` is disabled, and source deploy fails closed with `deployment_authorization_unavailable` before upload, build, payment, publication, or creation of a live URL. Existing app records can still be observed; that readback does not authorize a new deployment.
 
 This repository is the **open client-integration layer** — the MCP server config, Claude Code plugin, Cursor rules, agent docs, and starter templates that let agents and AI tools discover and use SettleMesh. The SettleMesh platform and the CLI binary are proprietary (see [NOTICE](./NOTICE)).
 
@@ -11,10 +11,15 @@ This repository is the **open client-integration layer** — the MCP server conf
 ```bash
 npm install -g settlemesh
 settlemesh login
-settlemesh deploy ./my-app --full-stack --wait
+settlemesh tool show app_deployments.create --json
+settlemesh deploy preflight ./my-app --full-stack --json
 ```
 
-Returns a live `*.run.settlemesh.io` URL with login, a database, and billing wired in.
+Read both `availability` on `app_deployments.create` and preflight's `admission.can_start_now`, `code`, `message`, and `fix`. Current production reports deployment authorization unavailable, so stop without sending a deploy mutation. Preflight is read-only and does not create an app, candidate, charge, publication, or URL.
+
+For app/build ids that already exist, use `settlemesh deploy status <app-id> --json`, `settlemesh deploy logs <build-id> --json`, and `settlemesh deploy url <app-id> --json`. Those commands are observation and recovery surfaces, not evidence that a new release can start.
+
+When deployment authorization becomes available and both availability checks allow the operation, the intended owner command is `settlemesh deploy ./my-app --full-stack --wait --json`. The target policy is automatic publication after mechanical checks pass, with no default human approval queue; only a successful serving response or URL readback is evidence of a live app.
 
 ## Use as an MCP server
 

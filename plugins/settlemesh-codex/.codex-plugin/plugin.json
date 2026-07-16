@@ -1,15 +1,15 @@
 {
   "name": "settlemesh",
   "version": "1.0.0",
-  "description": "Deploy and monetize an agent-built app in one command — SettleMesh OAuth login, a managed database, usage-based billing, and end-user payments. Bundles the SettleMesh MCP server (search + invoke the full capability catalog).",
+  "description": "Search and invoke the SettleMesh catalog, inspect deployment readiness, and observe existing deployments. Production source deployment is currently unavailable.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "SettleMesh",
     "developerName": "StructureIntelligence Inc.",
     "category": "Developer Tools",
-    "shortDescription": "Deploy and monetize agent-built apps: login, database, usage billing, end-user payments.",
-    "longDescription": "SettleMesh turns an agent-written app into a live, paid product in one command (settlemesh deploy --full-stack): managed OAuth login, a managed database, usage-based metered billing, and end-user payments (the signed-in user's own balance pays). Also a capability catalog over MCP/CLI — web search/scrape, LLMs, image/video, managed SQL, hosted agents — every call metered with a quote up front.",
+    "shortDescription": "Discover capabilities and inspect deployment readiness; new source deployment is unavailable.",
+    "longDescription": "SettleMesh exposes a capability catalog over MCP/CLI and the intended login, managed-data, and usage-billing deployment contract. Production deployment authorization is currently unavailable: app_deployments.create is disabled and source deploy fails closed with deployment_authorization_unavailable before upload, build, payment, publication, or a live URL. Existing deployment records can still be observed.",
     "capabilities": ["App deployment", "Authentication", "Database", "Usage billing", "MCP tools"],
     "websiteURL": "https://www.settlemesh.io/",
     "privacyPolicyURL": "https://www.settlemesh.io/privacy",

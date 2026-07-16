@@ -5,14 +5,14 @@
     "url": "https://settlemesh.io"
   },
   "metadata": {
-    "description": "Official SettleMesh plugins for Claude Code — deploy and monetize agent-built apps (login, database, usage billing, end-user payments) and call the SettleMesh capability catalog over MCP.",
+    "description": "Official SettleMesh plugins for Claude Code — call the capability catalog over MCP and inspect deployment readiness; new source deployment is currently unavailable.",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "settlemesh",
       "source": "./plugins/settlemesh",
-      "description": "Deploy and monetize agent-built apps — login, managed database, usage-based billing, and end-user payments in one command. Bundles the SettleMesh MCP server (search + invoke the full capability catalog)."
+      "description": "Discover and invoke the SettleMesh catalog, inspect deployment availability, and observe existing deployments. New source deployment is currently unavailable and fails closed."
     }
   ]
 }
