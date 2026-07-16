@@ -5,19 +5,12 @@
 // The table is created lazily on first call. SettleMesh's managed SQLite is
 // reached server-side via lib/settlemesh.ts (dbQuery), never from the browser.
 
-import { dbQuery, extractPayerToken } from "@/lib/settlemesh";
+import { dbQuery, resolveSettlePrincipal } from "@/lib/settlemesh";
 
 export const dynamic = "force-dynamic";
 
-// The end user's session token doubles as a stable per-user key for scoping
-// rows. In a real app you'd verify it against /__settle/me; for this demo we
-// scope by the token (or "anonymous" when signed out).
-function ownerKey(req: Request): string {
-  return extractPayerToken(req) || "anonymous";
-}
-
 async function ensureTable() {
-  await dbQuery(
+  return dbQuery(
     `create table if not exists snippets (
        id integer primary key autoincrement,
        owner text not null,
@@ -28,22 +21,47 @@ async function ensureTable() {
   );
 }
 
+function databaseFailure(result: { status: number; error?: string }) {
+  const status = result.status >= 400 && result.status <= 599 ? result.status : 502;
+  return Response.json(
+    {
+      error: {
+        code: "database_query_failed",
+        message: result.error || "The managed database query did not complete.",
+      },
+    },
+    { status }
+  );
+}
+
 export async function GET(req: Request) {
-  await ensureTable();
-  const owner = ownerKey(req);
+  const principal = await resolveSettlePrincipal(req);
+  if (principal.ok === false) {
+    return Response.json(
+      { error: { code: principal.code, message: principal.message } },
+      { status: principal.status }
+    );
+  }
+  const table = await ensureTable();
+  if (table.error) return databaseFailure(table);
   const result = await dbQuery(
     "select id, title, body, created_at from snippets where owner = ? order by id desc limit 100",
-    [owner]
+    [principal.principalId]
   );
   if (result.error) {
-    return Response.json({ error: result.error, snippets: [] }, { status: 200 });
+    return databaseFailure(result);
   }
   return Response.json({ snippets: result.payload });
 }
 
 export async function POST(req: Request) {
-  await ensureTable();
-  const owner = ownerKey(req);
+  const principal = await resolveSettlePrincipal(req);
+  if (principal.ok === false) {
+    return Response.json(
+      { error: { code: principal.code, message: principal.message } },
+      { status: principal.status }
+    );
+  }
   let body: { title?: string; body?: string };
   try {
     body = await req.json();
@@ -55,12 +73,14 @@ export async function POST(req: Request) {
   if (!title || !text) {
     return Response.json({ error: "title and body are required" }, { status: 400 });
   }
+  const table = await ensureTable();
+  if (table.error) return databaseFailure(table);
   const result = await dbQuery(
     "insert into snippets (owner, title, body) values (?, ?, ?)",
-    [owner, title, text]
+    [principal.principalId, title, text]
   );
   if (result.error) {
-    return Response.json({ error: result.error }, { status: 500 });
+    return databaseFailure(result);
   }
   return Response.json({ ok: true });
 }

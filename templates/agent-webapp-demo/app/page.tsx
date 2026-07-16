@@ -6,10 +6,21 @@ import { PoweredBySettleMesh } from "@/components/powered-by-settlemesh";
 
 type Snippet = { id: number; title: string; body: string; created_at: string };
 
+function apiErrorMessage(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const error = value as { message?: unknown; code?: unknown };
+    if (typeof error.message === "string") return error.message;
+    if (typeof error.code === "string") return error.code;
+  }
+  return "The request could not be completed.";
+}
+
 export default function Home() {
   const [user, setUser] = useState<{ email?: string } | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [snippetsLoaded, setSnippetsLoaded] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,8 +30,12 @@ export default function Home() {
   const refresh = useCallback(async () => {
     const res = await fetch("/api/snippets", { cache: "no-store" });
     const json = await res.json();
+    if (!res.ok || json.error) {
+      setNote(apiErrorMessage(json.error));
+      return;
+    }
     setSnippets(Array.isArray(json.snippets) ? json.snippets : []);
-    if (json.error) setNote(json.error);
+    setSnippetsLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -42,7 +57,7 @@ export default function Home() {
         body: JSON.stringify({ title, body }),
       });
       const json = await res.json();
-      if (json.error) setNote(json.error);
+      if (json.error) setNote(apiErrorMessage(json.error));
       else {
         setTitle("");
         setBody("");
@@ -66,7 +81,7 @@ export default function Home() {
         body: JSON.stringify({ body }),
       });
       const json = await res.json();
-      if (json.error) setNote(json.error);
+      if (json.error) setNote(apiErrorMessage(json.error));
       else {
         setBody(json.polished || body);
         setNote(json.metered ? "Polished (metered to you)." : json.note || "Polished.");
@@ -130,7 +145,11 @@ export default function Home() {
         <h2 style={{ fontSize: 15, color: "#9aa3b2", fontWeight: 600, margin: "0 0 12px" }}>
           Your snippets {snippets.length ? `(${snippets.length})` : ""}
         </h2>
-        {snippets.length === 0 ? (
+        {!snippetsLoaded ? (
+          <p style={{ color: "#6b7280", fontSize: 14 }}>
+            {note ? "Snippets are unavailable; the previous list was not replaced with an empty result." : "Loading snippets…"}
+          </p>
+        ) : snippets.length === 0 ? (
           <p style={{ color: "#6b7280", fontSize: 14 }}>Nothing saved yet.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>

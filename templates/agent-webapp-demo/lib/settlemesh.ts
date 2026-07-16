@@ -25,7 +25,7 @@ export function settleLogoutPath() {
   return "/__settle/logout";
 }
 
-export type SettleUser = { id?: string; email?: string; name?: string };
+export type SettleUser = { id?: string; sub?: string; email?: string; name?: string };
 
 // Call from the browser. Returns the signed-in user, or null when anonymous.
 export async function currentSettleUser(): Promise<SettleUser | null> {
@@ -33,6 +33,124 @@ export async function currentSettleUser(): Promise<SettleUser | null> {
   if (!res.ok) return null;
   const payload = await res.json();
   return payload.authenticated ? (payload.user as SettleUser) : null;
+}
+
+export type PrincipalResolution =
+  | { ok: true; principalId: string }
+  | {
+      ok: false;
+      status: 401 | 503;
+      code: "authentication_required" | "identity_authority_unavailable";
+      message: string;
+    };
+
+function settleAuthorityCookie(req: Request): string {
+  const accepted: string[] = [];
+  for (const part of (req.headers.get("cookie") || "").split(";")) {
+    const trimmed = part.trim();
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) continue;
+    const name = trimmed.slice(0, separator);
+    const value = trimmed.slice(separator + 1);
+    if (
+      (name === "__settle_session" || name === "__settle_access") &&
+      value.length > 0 &&
+      value.length <= 8192 &&
+      !/[\u0000-\u001f\u007f]/.test(value)
+    ) {
+      accepted.push(name + "=" + value);
+    }
+  }
+  return accepted.join("; ");
+}
+
+// Resolve the browser session through the platform's same-origin auth authority. A payer/session
+// token is an authorization secret, not a database identity: never decode it, hash it into an owner,
+// or persist it. Only the authority's stable user id/sub is safe to use for row ownership.
+export async function resolveSettlePrincipal(req: Request): Promise<PrincipalResolution> {
+  const cookie = settleAuthorityCookie(req);
+  if (!cookie) {
+    return {
+      ok: false,
+      status: 401,
+      code: "authentication_required",
+      message: "Sign in with SettleMesh before accessing snippets.",
+    };
+  }
+
+  let authorityURL: URL;
+  try {
+    authorityURL = new URL("/__settle/me", req.url);
+    if (authorityURL.protocol !== "https:" && authorityURL.protocol !== "http:") {
+      throw new Error("unsupported request origin");
+    }
+  } catch {
+    return {
+      ok: false,
+      status: 503,
+      code: "identity_authority_unavailable",
+      message: "SettleMesh identity could not be verified; no database operation was attempted.",
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(authorityURL, {
+      method: "GET",
+      headers: { cookie },
+      cache: "no-store",
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        status: 401,
+        code: "authentication_required",
+        message: "Your SettleMesh session is invalid or expired. Sign in again.",
+      };
+    }
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: 503,
+        code: "identity_authority_unavailable",
+        message: "SettleMesh identity could not be verified; no database operation was attempted.",
+      };
+    }
+
+    const payload = (await response.json()) as {
+      authenticated?: boolean;
+      user?: SettleUser;
+    };
+    const rawPrincipal = payload.user?.id || payload.user?.sub || "";
+    if (
+      payload.authenticated !== true ||
+      typeof rawPrincipal !== "string" ||
+      rawPrincipal.length === 0 ||
+      rawPrincipal.length > 512 ||
+      rawPrincipal !== rawPrincipal.trim() ||
+      /[\u0000-\u001f\u007f]/.test(rawPrincipal)
+    ) {
+      return {
+        ok: false,
+        status: 503,
+        code: "identity_authority_unavailable",
+        message: "SettleMesh identity returned no valid stable principal; no database operation was attempted.",
+      };
+    }
+    return { ok: true, principalId: "settle:" + rawPrincipal };
+  } catch {
+    return {
+      ok: false,
+      status: 503,
+      code: "identity_authority_unavailable",
+      message: "SettleMesh identity could not be verified; no database operation was attempted.",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +190,13 @@ export async function dbQuery(sql: string, params: unknown[] = []): Promise<DbRe
   try {
     payload = text ? JSON.parse(text) : null;
   } catch {}
+  if (!res.ok) {
+    return {
+      status: res.status,
+      payload,
+      error: `managed database query failed with HTTP ${res.status}`,
+    };
+  }
   return { status: res.status, payload };
 }
 

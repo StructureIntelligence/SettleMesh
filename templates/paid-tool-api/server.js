@@ -3,7 +3,7 @@
 // THE WHOLE POINT (pay-per-call, no billing code of your own):
 //   A caller signs in with their SettleMesh account (the platform auth gate at /__settle/login sets a
 //   durable __settle_session cookie). This server then bills THAT logged-in user — not you, the app
-//   developer — for every successful call to /api/tool, by:
+//   developer — for each admitted call to /api/tool, by:
 //     1. authenticating to SettleMesh with the app's injected runtime key (SETTLEMESH_APP_API_KEY), and
 //     2. forwarding the user's session token as the `X-Settle-Payer` header on the billable invoke.
 //   `X-Settle-Payer` is what charges the LOGGED-IN USER's Aev wallet instead of yours. If it is absent,
@@ -59,9 +59,10 @@ function payerToken(req) {
 // ---------------------------------------------------------------------------------------------------
 // SettleMesh call helper. RUNTIME_KEY authenticates the app; X-Settle-Payer bills the logged-in user.
 // ---------------------------------------------------------------------------------------------------
-async function settleFetch(method, p, payer, body) {
+async function settleFetch(method, p, payer, body, idempotencyKey) {
   const headers = { Authorization: "Bearer " + RUNTIME_KEY };
   if (payer) headers["X-Settle-Payer"] = payer; // <-- charges the USER's wallet, not the developer's
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body) headers["Content-Type"] = "application/json";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
@@ -75,15 +76,15 @@ async function settleFetch(method, p, payer, body) {
     const text = await res.text();
     let json;
     try { json = JSON.parse(text); } catch { json = { raw: text }; }
-    return { status: res.status, json };
+    return { status: res.status, json, headers: res.headers };
   } finally {
     clearTimeout(timer);
   }
 }
 
 // Invoke a capability: POST /v1/capabilities/{id}/invoke with {input}. (See agent.md for the contract.)
-function invokeTool(input, payer) {
-  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(CAPABILITY)}/invoke`, payer, { input: input || {} });
+function invokeTool(input, payer, idempotencyKey) {
+  return settleFetch("POST", `/v1/capabilities/${encodeURIComponent(CAPABILITY)}/invoke`, payer, { input: input || {} }, idempotencyKey);
 }
 
 // Defensively unwrap a possibly-{success,data,meta}-wrapped response down to its payload.
@@ -92,22 +93,19 @@ function unwrap(json) {
   return json || {};
 }
 
-// Search a response for the ACTUAL charge so we can echo it back to the caller. Aev.
-function extractCost(obj, depth = 0) {
-  if (!obj || typeof obj !== "object" || depth > 5) return null;
-  const keys = ["aev", "cost", "cost_credits", "total_credits", "credits", "billed", "billed_aev", "amount", "charged"];
-  for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === "number" && isFinite(v) && v > 0) return v;
+// Capability output is provider-controlled data, not settlement authority. This template calls money
+// captured only when the platform emits its explicit post-capture response header. Missing or invalid
+// evidence stays unknown; useful provider output never upgrades billing state by itself.
+function captureEvidence(headers) {
+  const raw = headers && headers.get("x-settle-charged-aev");
+  if (raw == null || String(raw).trim() === "") {
+    return { settlement_status: "unknown", captured_aev: null };
   }
-  for (const k of Object.keys(obj)) {
-    const v = obj[k];
-    if (v && typeof v === "object") {
-      const found = extractCost(v, depth + 1);
-      if (found != null) return found;
-    }
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return { settlement_status: "unknown", captured_aev: null };
   }
-  return null;
+  return { settlement_status: "captured", captured_aev: amount };
 }
 
 // Pull plain text out of the capability result, trying the common shapes.
@@ -127,6 +125,8 @@ function sendJSON(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
   res.end(JSON.stringify(obj));
 }
+
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,200}$/;
 
 const CTYPE = {
   ".html": "text/html; charset=utf-8",
@@ -148,7 +148,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   // -------------------------------------------------------------------------------------------------
-  // THE PAID ENDPOINT. Every successful call bills the logged-in user's Aev wallet.
+  // THE PAID ENDPOINT. Calls request delegated billing against the logged-in user's Aev wallet;
+  // only explicit platform capture evidence below proves the final settlement state.
   //
   // This example: summarize text. POST { "text": "...", "style": "tldr" | "bullets" } -> { summary }.
   // Replace the prompt/body with your own tool — the billing wiring (payer + runtime key) stays as-is.
@@ -168,6 +169,13 @@ const server = http.createServer(async (req, res) => {
     if (text.length > 12000) return sendJSON(res, 413, { error: "text_too_long", message: "Limit input to 12000 characters." });
 
     const style = String(input.style || "tldr").toLowerCase();
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+    if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      return sendJSON(res, 400, {
+        error: "idempotency_key_required",
+        message: "Send one stable Idempotency-Key per logical operation.",
+      });
+    }
     const instruction = style === "bullets"
       ? "Summarize the following text as 3-5 concise bullet points. Output only the bullets."
       : "Summarize the following text in 2-3 sentences. Output only the summary.";
@@ -183,26 +191,44 @@ const server = http.createServer(async (req, res) => {
             { role: "user", content: text },
           ],
         },
-        payer
+        payer,
+        idempotencyKey
       );
+      const capture = captureEvidence(r.headers);
 
       if (r.status >= 400) {
-        // No successful result -> nothing useful to return. The platform does not charge for a failed
-        // invoke, so the caller is not billed here.
-        return sendJSON(res, r.status, { error: "tool_failed", detail: r.json });
+        // The HTTP status is not settlement authority. Preserve explicit capture evidence even on an
+        // error response; otherwise keep the outcome unknown and reuse this exact logical operation.
+        const message = capture.settlement_status === "captured"
+          ? "The call did not complete here, but trusted platform evidence reports capture. Inspect the platform record before retrying; never start a fresh operation key."
+          : "The call did not complete here and settlement is unknown. Safely retry only with the exact same input and Idempotency-Key, or inspect the platform record; never start a fresh operation key.";
+        return sendJSON(res, r.status, {
+          error: "tool_failed",
+          message,
+          detail: r.json,
+          captured_aev: capture.captured_aev,
+          settlement_status: capture.settlement_status,
+          idempotency_key: idempotencyKey,
+        });
       }
 
       const summary = extractText(r.json);
-      const cost = extractCost(r.json);
       return sendJSON(res, 200, {
         ok: true,
         summary,
         style,
-        cost_aev: cost != null ? cost : null, // the actual amount billed to the caller, in Aev
+        captured_aev: capture.captured_aev,
+        settlement_status: capture.settlement_status,
+        idempotency_key: idempotencyKey,
         currency: "aev",
       });
     } catch (e) {
-      return sendJSON(res, 502, { error: "tool_error", message: String((e && e.message) || e) });
+      return sendJSON(res, 502, {
+        error: "tool_error",
+        message: "Network/provider outcome is unknown. Safely retry only with the exact same input and Idempotency-Key, or inspect the platform record; never start a fresh operation key. " + String((e && e.message) || e),
+        settlement_status: "unknown",
+        idempotency_key: idempotencyKey,
+      });
     }
   }
 
@@ -216,4 +242,8 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => console.log("paid-tool-api listening on :" + PORT + " (base " + BASE + ")"));
+if (require.main === module) {
+  server.listen(PORT, () => console.log("paid-tool-api listening on :" + PORT + " (base " + BASE + ")"));
+}
+
+module.exports = { captureEvidence, extractText, server };

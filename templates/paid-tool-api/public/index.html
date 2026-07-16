@@ -20,7 +20,7 @@
 </head>
 <body>
   <h1>paid-tool-api <span class="pill">metered</span></h1>
-  <p class="sub">One endpoint that summarizes text — and bills the caller's SettleMesh wallet per call.</p>
+  <p class="sub">One endpoint that summarizes text and requests delegated payment from the caller's SettleMesh wallet.</p>
 
   <h2>Try it</h2>
   <p id="auth"></p>
@@ -29,39 +29,102 @@
   <pre id="out"></pre>
 
   <h2>Call it yourself</h2>
-  <p>Sign in once at <code>/__settle/login</code>, then POST to the endpoint. The session cookie is your
-     payer; the call is billed to your SettleMesh wallet in Aev (1 USD = 100 Aev).</p>
+  <p>Sign in once at <code>/__settle/login</code>, then POST to the endpoint. The session cookie selects
+     your SettleMesh wallet as payer; final capture is shown only from trusted platform evidence.</p>
   <pre><code>curl -X POST https://YOUR-APP.run.settlemesh.io/api/tool \
   -H "Authorization: Bearer &lt;your-settlemesh-session-token&gt;" \
+  -H "Idempotency-Key: tool:&lt;one-stable-operation-id&gt;" \
   -H "Content-Type: application/json" \
   -d '{"text":"Long article here...","style":"bullets"}'</code></pre>
 
   <script>
+    const OPERATION_STORAGE_KEY = "settlemesh.paid-tool.pending-operation.v1";
+    function newOperationId() {
+      if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+        return "tool:" + globalThis.crypto.randomUUID();
+      }
+      return "tool:" + Date.now() + ":" + Math.random().toString(36).slice(2);
+    }
+    function loadOperation() {
+      try {
+        const value = JSON.parse(sessionStorage.getItem(OPERATION_STORAGE_KEY) || "null");
+        if (value && typeof value.id === "string" && value.input && typeof value.input.text === "string") return value;
+      } catch {}
+      return null;
+    }
+    function storeOperation(value) {
+      if (value) sessionStorage.setItem(OPERATION_STORAGE_KEY, JSON.stringify(value));
+      else sessionStorage.removeItem(OPERATION_STORAGE_KEY);
+    }
+    function reflectOperation(value) {
+      const input = document.getElementById("text");
+      const button = document.getElementById("go");
+      input.readOnly = !!value;
+      if (value) input.value = value.input.text;
+      button.textContent = value ? "Retry same operation" : "Summarize (paid)";
+    }
+
+    let operation = loadOperation();
+    reflectOperation(operation);
+
     fetch("/api/me").then(r => r.json()).then(m => {
       document.getElementById("auth").innerHTML = m.logged_in
-        ? "✅ You're signed in — calls will be billed to your wallet."
+        ? "✅ You're signed in — paid calls will use your wallet; final capture is reported separately."
         : '🔒 <a href="/__settle/login">Sign in with SettleMesh</a> to make a paid call.';
     }).catch(() => {});
 
     document.getElementById("go").addEventListener("click", async () => {
       const out = document.getElementById("out");
       out.textContent = "Working…";
+      if (!operation) {
+        const requestedText = document.getElementById("text").value.trim();
+        if (!requestedText) {
+          out.textContent = "Provide non-empty text before starting a paid operation.";
+          return;
+        }
+        if (requestedText.length > 12000) {
+          out.textContent = "Limit input to 12000 characters.";
+          return;
+        }
+        operation = {
+          id: newOperationId(),
+          input: { text: requestedText, style: "tldr" },
+        };
+        storeOperation(operation);
+        reflectOperation(operation);
+      }
       try {
         const res = await fetch("/api/tool", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: document.getElementById("text").value, style: "tldr" }),
+          headers: { "Content-Type": "application/json", "Idempotency-Key": operation.id },
+          body: JSON.stringify(operation.input),
         });
         const data = await res.json();
         if (data.summary) {
-          out.textContent = data.summary + (data.cost_aev != null ? `\n\n— billed ${data.cost_aev} Aev` : "");
+          const captured = data.settlement_status === "captured" &&
+            typeof data.captured_aev === "number" && Number.isFinite(data.captured_aev) && data.captured_aev >= 0;
+          if (captured) {
+            out.textContent = data.summary + `\n\n— ${data.captured_aev} Aev captured`;
+            operation = null;
+            storeOperation(null);
+            reflectOperation(null);
+          } else {
+            out.textContent = data.summary + `\n\n— settlement unknown for operation ${data.idempotency_key || operation.id}; use “Retry same operation” to resend the exact same input and Idempotency-Key, or inspect its platform record`;
+            reflectOperation(operation);
+          }
         } else if (data.login) {
           out.innerHTML = '🔒 <a href="' + data.login + '">Sign in with SettleMesh</a> first.';
         } else {
-          out.textContent = "Error: " + (data.message || data.error || res.status);
+          const captured = data.settlement_status === "captured" &&
+            typeof data.captured_aev === "number" && Number.isFinite(data.captured_aev) && data.captured_aev >= 0;
+          out.textContent = captured
+            ? `Error: ${data.message || data.error || res.status} Trusted evidence reports ${data.captured_aev} Aev captured for operation ${data.idempotency_key || operation.id}; inspect its platform record before retrying.`
+            : `Error: ${data.message || data.error || res.status} Settlement is unknown for operation ${data.idempotency_key || operation.id}; use “Retry same operation” to resend the exact same input and Idempotency-Key, or inspect its platform record.`;
+          reflectOperation(operation);
         }
       } catch (e) {
-        out.textContent = "Error: " + e.message;
+        out.textContent = `Network outcome is unknown for operation ${operation.id}; use “Retry same operation” to resend the exact same input and Idempotency-Key, or inspect its platform record. ` + e.message;
+        reflectOperation(operation);
       }
     });
   </script>
