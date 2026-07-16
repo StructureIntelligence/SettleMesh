@@ -13,7 +13,7 @@ SettleMesh is an agent capability layer with an intended app runtime contract fo
 2. Start with `settlemesh search "<task>"` to discover the public catalog. Run `settlemesh login` (a human approves once in the browser) — or set `SETTLE_API_KEY=sk-settle-...` for headless/CI — only when the selected action needs an account.
 3. The full agent contract lives at `https://www.settlemesh.io/agent.md` — fetch it for the complete recipe set, then `settlemesh recipes` for the shortest path to any task.
 
-**No card flow is needed to discover:** public search/show are anonymous and read-only. Quote via `POST /v1/billing/quote` is authenticated but read-only. Invoke only after reading the selected entrypoint's availability and price. If available Aev is insufficient while card top-up is contained, stop and report that the paid action cannot proceed in this profile.
+**No card flow is needed to discover:** public search/show are anonymous and read-only. A public platform capability quote through `POST /v1/billing/quote` is also anonymous and read-only; agent, worker-offer, app-endpoint, service-unit, non-public, payer-aware, and call-chain quotes require authentication. All invoke requires authentication after reading the selected entrypoint's availability and price. If available Aev is insufficient while card top-up is contained, stop and report that the paid action cannot proceed in this profile.
 
 ## Core rule
 

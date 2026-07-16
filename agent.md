@@ -2,7 +2,7 @@
 
 Read this before using SettleMesh from Codex, Cursor, Claude Code, CI, or another agent runtime.
 
-> **Step 0 — discover before auth.** After installing (`npm install -g settlemesh@latest`), use anonymous `settlemesh search` / `show` and other public read-only GET surfaces first — they work without login so you can learn the catalog and contracts. Login (`settlemesh login`) or `SETTLE_API_KEY` is required only when an operation contract needs auth (quote via `POST /v1/billing/quote`, paid invoke, deploy/publish, or user-private state); those calls otherwise fail with `run settlemesh login`. There is no manual approval queue for ordinary discovery or mechanical publish. A human approves login once in the browser and the session is reused. After login the CLI prints a short list of what SettleMesh can do — or run `settlemesh recipes` any time.
+> **Step 0 — discover before auth.** After installing (`npm install -g settlemesh@latest`), use anonymous `settlemesh search` / `show` and other public read-only GET surfaces first — they work without login so you can learn the catalog and contracts. Public platform capability quotes through `POST /v1/billing/quote` are also anonymous and read-only. Login (`settlemesh login`) or `SETTLE_API_KEY` is required for restricted quote targets, all invoke, deploy/publish, or user-private state. There is no manual approval queue for ordinary discovery or mechanical publish. A human approves login once in the browser and the session is reused. After login the CLI prints a short list of what SettleMesh can do — or run `settlemesh recipes` any time.
 
 ## First Time: Localize This Guide (do this once)
 
@@ -11,7 +11,7 @@ If you are an agent reading this for the first time:
 1. Save this file into the project as `agent.md` — run `settlemesh agent-md --save`, or fetch `https://api.settlemesh.io/agent.md` (the same `api.` host you call at runtime). If a different project `agent.md` already exists, the command refuses to overwrite it: use `--output .settlemesh/settlemesh-agent.md` to keep both, or review it and use `--force` only when replacing it is intentional.
 2. Create a skill / rule in your runtime that says: **"For any SettleMesh task, read `./agent.md` first."** (Claude Code: a skill; Cursor: a rule; Codex/CI: a line in your project instructions.)
 3. Discover first: anonymous `settlemesh search` / `show` (and other public read-only GET surfaces) work without login — use them before authenticating.
-4. Authenticate only when an operation contract needs auth: run `settlemesh login` (or set `SETTLE_API_KEY`) for quote (`POST /v1/billing/quote`), paid invoke, deploy/publish, or user-private state — a human approves in the browser; the CLI reuses the stored session.
+4. Authenticate only when an operation contract needs auth: run `settlemesh login` (or set `SETTLE_API_KEY`) for a restricted quote target, all invoke, deploy/publish, or user-private state — a human approves in the browser; the CLI reuses the stored session.
 5. Print the shortest reliable path for any task with `settlemesh recipes`.
 
 From then on every SettleMesh task starts from your local `agent.md` — discover anonymously when you can, authenticate when the contract requires it — no re-deriving how the platform works.
@@ -40,7 +40,7 @@ If none of these fit (a local-only script, no users, no paid calls), you don't n
 
 ## No CLI? HTTP-Only Quick Start
 
-If your runtime cannot install npm packages (CI sandbox, restricted agent runtime), public discovery and account actions are both plain HTTP against `https://api.settlemesh.io`. **Search and inspect are public: do not obtain, send, or expose a key for them.** Quote, invoke, and account reads require `Authorization: Bearer $SETTLE_API_KEY`:
+If your runtime cannot install npm packages (CI sandbox, restricted agent runtime), public discovery and account actions are both plain HTTP against `https://api.settlemesh.io`. **Search, inspect, and a public platform capability quote are public: do not obtain, send, or expose a key for them.** A public platform capability quote is anonymous and read-only: it creates no hold, charge, ledger entry, allowance read, or provider call. Authenticate to quote an agent, worker offer, app endpoint, service unit, non-public target, or any payer-aware or call-chain request. Those restricted quote targets fail closed with `anonymous_quote_target_restricted`; all invoke and account reads also require `Authorization: Bearer $SETTLE_API_KEY`.
 
 ```bash
 # 1. Search the public catalog (no key; this is the same discovery index the CLI uses)
@@ -50,13 +50,13 @@ curl "https://api.settlemesh.io/v1/services/search?all=true&category=web-knowled
 # 2. Inspect the public contract (no key; inputs, pricing, examples)
 curl "https://api.settlemesh.io/v1/services/webpage.to_markdown"
 
-# 3. Only after choosing an account-required action, provide a key.
-export SETTLE_API_KEY="sk-settle-..."
-
-# 4. Quote before a paid call — read-only, no hold, no charge
-curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: application/json" \
+# 3. Quote a public platform capability — anonymous and read-only
+curl -X POST -H "Content-Type: application/json" \
   -d '{"capability_id":"webpage.to_markdown","input":{"url":"https://example.com"}}' \
   "https://api.settlemesh.io/v1/billing/quote"
+
+# 4. Only after choosing an account-required action, provide a key.
+export SETTLE_API_KEY="sk-settle-..."
 
 # 5. Invoke — the canonical prefix is /v1/capabilities/ (NOT /v1/tools/)
 curl -X POST -H "Authorization: Bearer $SETTLE_API_KEY" -H "Content-Type: application/json" \
@@ -132,7 +132,7 @@ settlemesh show <service-id> --json
 settlemesh tool show <tool-id> --json
 ```
 
-Then quote the exact paid call before invoking. Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous):
+Then quote the exact paid call before invoking. A public platform capability quote through `POST /v1/billing/quote` does not require login or a key and remains read-only. Authenticate to quote an agent, worker offer, app endpoint, service unit, non-public target, or any payer-aware or call-chain request. An unauthenticated request for those targets fails with `anonymous_quote_target_restricted`:
 
 ```bash
 settlemesh quote web.search --input '{"q":"SettleMesh"}' --json

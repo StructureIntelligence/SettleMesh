@@ -16,9 +16,10 @@ canonical_invoke='The canonical HTTP invoke path is `POST /v1/capabilities/{id}/
 automatic_publication='Passing mechanical protocol checks publish and become discoverable automatically; there is no default human approval queue.'
 card_containment='Aev is the platform accounting unit. Card top-up is contained and Legal remains unverified; do not claim card funding is available.'
 
-# Core contract sentences required in agent.md + llms.txt (discover-before-auth, authenticated quote, Legal independence).
+# Core contract sentences required in agent.md + llms.txt (discover-before-auth, scoped quote auth, Legal independence).
 discover_before_auth='use anonymous `settlemesh search` / `show` and other public read-only GET surfaces first — they work without login so you can learn the catalog and contracts'
-authenticated_quote='Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
+public_capability_quote='A public platform capability quote is anonymous and read-only: it creates no hold, charge, ledger entry, allowance read, or provider call.'
+restricted_quote_auth='Authenticate to quote an agent, worker offer, app endpoint, service unit, non-public target, or any payer-aware or call-chain request.'
 legal_independence='confirmation cannot turn an unavailable Legal state into PASS'
 deployment_availability='subject to live server/preflight availability'
 deployment_authorization_unavailable='deployment_authorization_unavailable'
@@ -95,27 +96,37 @@ require_text() {
   fi
 }
 
-# Context-aware forbidden-policy matcher (case-insensitive).
-# Returns 0 when text contains a rejected claim; 1 when clean.
-# Intentionally does NOT reject correct discover-first → login-once sequencing
-# or explicit "not anonymous" / authenticated-quote wording.
-text_has_forbidden_policy() {
+# Returns 0 when a line broadens anonymous quote beyond the exact public,
+# platform-capability boundary or restores the stale all-quotes-authenticated claim.
+text_has_false_quote_claim() {
   local text="$1"
+  local quote_text="${text//$public_capability_quote/}"
 
-  # Quote works/is available anonymously; anonymous/unauthenticated users can quote;
-  # quote without login/auth; anonymous quote / quote is anonymous.
-  # Allow lines that only deny anonymity ("not anonymous", "not an anonymous quote").
-  if printf '%s\n' "$text" | rg -qi \
+  if printf '%s\n' "$quote_text" | rg -qi \
+    -e '\b(all|any|every)[[:space:]]+quotes?\b.{0,80}\banonymous\b' \
     -e 'quotes?\s+(works?|is\s+available)\s+anonymously' \
     -e '(anonymous|unauthenticated)\s+users?\s+can\s+(get\s+)?quotes?' \
     -e 'quotes?\s+without\s+(login|auth)\b' \
-    -e 'quotes?\s+is\s+anonymous\b'; then
+    -e 'quotes?\s+is\s+anonymous\b' \
+    -e '\b(agent|worker([[:space:]]+offer)?|app([[:space:]]+endpoint)?|service[[:space:]]+unit|non-public|payer-aware|call-chain)[[:space:]-]+quotes?\b.{0,80}\banonymous\b' \
+    -e 'quote requires login or `settle_api_key` under the current contract' \
+    -e 'quote via `post /v1/billing/quote` is authenticated but read-only'; then
     return 0
   fi
-  # Match the claim itself rather than filtering its whole line.  Otherwise a
-  # later denial on the same line can hide an earlier forbidden claim.
-  if printf '%s\n' "$text" | rg -Pqi -- \
+  if printf '%s\n' "$quote_text" | rg -Pqi -- \
     '(?<!not )(?<!not an )\banonymous\s+quotes?\b'; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Context-aware forbidden-policy matcher (case-insensitive).
+# Returns 0 when text contains a rejected claim; 1 when clean.
+text_has_forbidden_policy() {
+  local text="$1"
+
+  if text_has_false_quote_claim "$text"; then
     return 0
   fi
 
@@ -249,6 +260,12 @@ run_self_tests() {
     'Use the anonymous quote path for discovery.'
   assert_rejects 'quote is anonymous' \
     'Billing quote is anonymous under the current contract.'
+  assert_rejects 'all quotes are anonymous' \
+    'All quotes are anonymous and read-only.'
+  assert_rejects 'agent quote is anonymous' \
+    'An agent quote is anonymous.'
+  assert_rejects 'stale all-auth quote claim' \
+    'Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
   assert_rejects 'login before search' \
     'Always login before search.'
   assert_rejects 'authenticate before show' \
@@ -289,16 +306,18 @@ run_self_tests() {
   # Nearby contradiction: correct discover guidance next to a bad quote claim.
   assert_rejects 'nearby good+bad quote contradiction' \
     'Discover with anonymous settlemesh search / show first. Also, quote works anonymously.'
+  assert_rejects 'scoped public quote plus broad contradiction' \
+    "$public_capability_quote All quotes are anonymous."
   assert_rejects 'anonymous quote followed by nearby denial' \
     'Use the anonymous quote path. Billing quote is not anonymous.'
   assert_rejects 'nearby good+bad login-then-search' \
     'Use public GET surfaces first — but login once (a human approves in the browser), then search.'
 
   # --- Negative mutation cases (must allow) ---
-  assert_allows 'authenticated not anonymous' \
-    'POST /v1/billing/quote is authenticated — not anonymous'
-  assert_allows 'quote requires login not anonymous' \
-    'Quote requires login or `SETTLE_API_KEY` under the current contract (`POST /v1/billing/quote` is authenticated — not anonymous)'
+  assert_allows 'scoped public platform quote' \
+    'A public platform capability quote is anonymous and read-only: it creates no hold, charge, ledger entry, allowance read, or provider call.'
+  assert_allows 'restricted quote requires auth' \
+    'Authenticate to quote an agent, worker offer, app endpoint, service unit, non-public target, or any payer-aware or call-chain request.'
   assert_allows 'not an anonymous quote' \
     'This is not an anonymous quote; auth is required.'
   assert_allows 'discover then login once before quote' \
@@ -389,7 +408,8 @@ done
 
 for file in "${core_contract_projections[@]}"; do
   require_text "$file" "$discover_before_auth"
-  require_text "$file" "$authenticated_quote"
+  require_text "$file" "$public_capability_quote"
+  require_text "$file" "$restricted_quote_auth"
   require_text "$file" "$legal_independence"
 done
 
@@ -422,23 +442,15 @@ for forbidden in \
   fi
 done
 
-# Context-aware case-insensitive policy regexes over public projections.
-# Replaces brittle fixed strings for anonymous-quote, login-before-discover,
-# first-call-free, Legal/confirmation, and unqualified Stripe/card/top-up claims.
-if rg -n -i \
-  -e 'quotes?\s+(works?|is\s+available)\s+anonymously' \
-  -e '(anonymous|unauthenticated)\s+users?\s+can\s+(get\s+)?quotes?' \
-  -e 'quotes?\s+without\s+(login|auth)\b' \
-  -e 'quotes?\s+is\s+anonymous\b' \
-  "${projections[@]}" 2>/dev/null; then
-  printf 'deprecated policy wording remains: anonymous/unauthenticated quote claim\n' >&2
-  failed=1
-fi
-if rg -P -n -i -- '(?<!not )(?<!not an )\banonymous\s+quotes?\b' \
-  "${projections[@]}" 2>/dev/null; then
-  printf 'deprecated policy wording remains: anonymous quote claim\n' >&2
-  failed=1
-fi
+# Context-aware quote boundary over every public projection.
+for file in "${projections[@]}"; do
+  while IFS= read -r line; do
+    if text_has_false_quote_claim "$line"; then
+      printf 'deprecated or over-broad quote wording remains in %s: %s\n' "$file" "$line" >&2
+      failed=1
+    fi
+  done < "$file"
+done
 if rg -n -i \
   -e '\b(log[[:space:]]*in|login|authenticate[ds]?)\b.{0,120}?\b(before|then)[[:space:]]+(search|show|discover)\b' \
   "${projections[@]}" 2>/dev/null; then
