@@ -8,6 +8,10 @@
 // Nothing here is secret. Real values arrive as environment variables that
 // `settlemesh deploy` injects at deploy time. See .env.example for the names.
 
+import { captureEvidence, isValidIdempotencyKey } from "./settlement.mjs";
+
+export { isValidIdempotencyKey };
+
 const SETTLEMESH_BASE_URL = (
   process.env.SETTLEMESH_BASE_URL || "https://api.settlemesh.io"
 ).replace(/\/+$/, "");
@@ -201,29 +205,45 @@ export async function dbQuery(sql: string, params: unknown[] = []): Promise<DbRe
 }
 
 // ---------------------------------------------------------------------------
-// 3. Metered capability — one paid tool call, billed to the end user.
+// 3. Metered capability — one paid tool call with delegated-payer admission.
 // ---------------------------------------------------------------------------
 //
-// `payerToken` carries the end user's SettleMesh session so the charge lands on
-// THEM, not on you (the developer). Extract it from the incoming request with
-// extractPayerToken() below and pass it through. Omit it and the call bills the
-// app owner instead.
+// `payerToken` carries the end user's SettleMesh session. It is required: this helper never omits the
+// delegated payer header and therefore never silently falls back to the app-owner wallet. Provider
+// output remains separate from settlement evidence.
 
 export type InvokeOptions = {
   timeoutMs?: number;
-  payerToken?: string | null;
+  payerToken: string;
+  idempotencyKey: string;
+};
+
+export type CapabilityCallResult<T> = {
+  ok: boolean;
+  status: number;
+  payload: T;
+  settlement_status: "captured" | "unknown";
+  captured_aev: number | null;
 };
 
 export async function callCapability<T = unknown>(
   toolId: string,
   input: unknown,
-  options: InvokeOptions = {}
-): Promise<T> {
+  options: InvokeOptions
+): Promise<CapabilityCallResult<T>> {
   const apiKey = process.env.SETTLEMESH_APP_API_KEY;
   if (!apiKey) {
     throw new Error(
       "SETTLEMESH_APP_API_KEY is not configured. Deploy with `settlemesh deploy`."
     );
+  }
+  const payerToken = String(options.payerToken || "").trim();
+  if (!payerToken || payerToken.length > 8192 || /[\u0000-\u001f\u007f]/.test(payerToken)) {
+    throw new Error("A valid delegated payer session is required; app-owner fallback is disabled.");
+  }
+  const idempotencyKey = String(options.idempotencyKey || "").trim();
+  if (!isValidIdempotencyKey(idempotencyKey)) {
+    throw new Error("A stable Idempotency-Key is required for this logical operation.");
   }
 
   const controller = new AbortController();
@@ -232,12 +252,12 @@ export async function callCapability<T = unknown>(
   const headers: Record<string, string> = {
     authorization: "Bearer " + apiKey,
     "content-type": "application/json",
+    "X-Settle-Payer": payerToken,
+    "Idempotency-Key": idempotencyKey,
   };
-  // End-user-pays: forward the payer's session token so the charge lands on them.
-  if (options.payerToken) headers["X-Settle-Payer"] = options.payerToken;
 
   try {
-    const res = await fetch(
+    const response = await fetch(
       SETTLEMESH_BASE_URL + "/v1/capabilities/" + encodeURIComponent(toolId) + "/invoke",
       {
         method: "POST",
@@ -246,15 +266,19 @@ export async function callCapability<T = unknown>(
         signal: controller.signal,
       }
     );
-    const text = await res.text();
+    const text = await response.text();
     let payload: unknown = text;
     try {
       payload = text ? JSON.parse(text) : null;
     } catch {}
-    if (!res.ok) {
-      throw new Error("capability " + toolId + " failed: " + res.status + " " + text);
-    }
-    return payload as T;
+    const settlement = captureEvidence(response.headers);
+    return {
+      ok: response.ok,
+      status: response.status,
+      payload: payload as T,
+      settlement_status: settlement.settlement_status,
+      captured_aev: settlement.captured_aev,
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -264,9 +288,15 @@ export async function callCapability<T = unknown>(
 // downstream capability call can bill them. SettleMesh sets the __settle_session
 // cookie on authenticated requests; we also accept an explicit header.
 export function extractPayerToken(req: Request): string | null {
-  const header = req.headers.get("x-settle-payer");
-  if (header) return header;
+  const header = (req.headers.get("x-settle-payer") || "").trim();
+  if (header && header.length <= 8192 && !/[\u0000-\u001f\u007f]/.test(header)) return header;
   const cookie = req.headers.get("cookie") || "";
-  const match = cookie.match(/(?:^|;\s*)__settle_session=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  const match = cookie.match(/(?:^|;\s*)__settle_(?:session|access)=([^;]+)/);
+  if (!match) return null;
+  try {
+    const token = decodeURIComponent(match[1]).trim();
+    return token && token.length <= 8192 && !/[\u0000-\u001f\u007f]/.test(token) ? token : null;
+  } catch {
+    return null;
+  }
 }

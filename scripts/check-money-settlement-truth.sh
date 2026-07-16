@@ -161,6 +161,13 @@ else
   printf 'paid-tool settlement authority contract: PASS\n'
 fi
 
+if ! node --test templates/agent-webapp-demo/lib/*.test.mjs; then
+  printf 'agent-webapp settlement authority contract: FAIL\n' >&2
+  failed=1
+else
+  printf 'agent-webapp settlement authority contract: PASS\n'
+fi
+
 # A transport result alone cannot prove whether a paid effect was captured.
 reject_pattern \
   'timeout/502 guidance says to retry blindly' \
@@ -254,6 +261,32 @@ reject_pattern \
   'anonymous fallback can read or write shared rows' \
   '(?:\|\|\s*[\x22\x27]anonymous[\x22\x27]|owner\s*=\s*[\x22\x27]anonymous[\x22\x27])' \
   templates/agent-webapp-demo/app/api/snippets/route.ts
+
+# The demo's paid polish action must never fall back to the app-owner wallet, invent capture from a
+# provider result, or lose the logical operation identity needed for a safe replay.
+reject_pattern \
+  'polish provider success is presented as metered/captured' \
+  '(?:metered\s*:\s*true|Polished \(metered to you\))' \
+  templates/agent-webapp-demo/app/api/polish/route.ts \
+  templates/agent-webapp-demo/app/page.tsx
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'missing payer is rejected before invocation' 'if\s*\(!payerToken\)[\s\S]{0,300}status\s*:\s*401'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'payer authentication precedes input parsing' 'extractPayerToken\(req\)[\s\S]{0,500}status\s*:\s*401[\s\S]{0,500}await req\.json\(\)'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'polish requires one stable logical operation identity' 'Idempotency-Key'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'polish returns explicit settlement state' 'settlement_status'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'capability helper forwards logical operation identity' 'Idempotency-Key'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'capability helper exposes trusted response headers' 'response\.headers'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser preserves uncertain polish operation across reload' 'sessionStorage'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser exposes exact same-operation recovery' 'Retry same operation'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser calls an amount captured only from settlement state' 'settlement_status\s*===\s*[\x22\x27]captured[\x22\x27]'
 require_pattern templates/ai-saas-paid-api/server.js \
   'funding navigation validates the live URL before exposing it' 'const\s+topup\s*=\s*safeFundingURL\(detail\.topup_url\)'
 require_pattern templates/paid-tool-api/server.js \

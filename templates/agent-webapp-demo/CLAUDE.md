@@ -7,8 +7,8 @@ real database, and one paid action — not to be a big product.
 ## What it is
 
 **Snippet Vault** — save text/code snippets to a managed database, and "polish"
-any snippet with one metered AI capability call that bills the end user (not the
-developer).
+any snippet with one metered AI capability call using explicit delegated-payer
+admission. Do not infer capture from provider output or HTTP success.
 
 ## Shape
 
@@ -19,11 +19,15 @@ developer).
 - **Database:** SettleMesh managed SQLite, queried server-side in
   `lib/settlemesh.ts` → `dbQuery`. Table is created lazily.
 - **Metered capability:** `app/api/polish/route.ts` calls `callCapability` and
-  forwards the end user's session as the payer (`X-Settle-Payer`).
+  requires the end user's session as payer (`X-Settle-Payer`) plus one stable
+  `Idempotency-Key`. Missing payer fails with 401; there is no app-owner fallback.
 
 ## If you extend it
 
 - Keep all SettleMesh calls in `lib/settlemesh.ts`. Don't sprinkle fetches around.
+- Call money captured only from the explicit platform `x-settle-charged-aev`
+  header. Preserve valid output and retry the exact same input/key when the
+  settlement outcome is unknown.
 - The managed DB server key is **server-side only** — never expose it to the client.
 - Before wiring a *real* capability, set `SETTLEMESH_POLISH_CAPABILITY` and confirm
   the tool's exact input contract in the agent guide: https://www.settlemesh.io/agent.md
