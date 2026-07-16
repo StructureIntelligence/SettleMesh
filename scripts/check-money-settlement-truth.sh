@@ -218,6 +218,23 @@ require_text agent.md \
 require_pattern agent.md \
   'only trusted capture evidence may be called charged' \
   '(?:captured ledger.{0,160}x-settle-charged-aev|x-settle-charged-aev.{0,160}captured ledger)'
+require_text agent.md \
+  'publish fee requirement is distinct from current charge admission' \
+  '`fee_required` is separate from `will_charge`'
+require_text agent.md \
+  'paid publish admission reports its stable unavailable code' \
+  '`publish_settlement_unavailable`'
+require_pattern agent.md \
+  'paid publish fails before money or publication effects' \
+  'http 503 before any hold, capture, or publication'
+reject_pattern \
+  'will_charge false is falsely presented as proof of a free publish' \
+  '`will_charge:false` means you are still inside the free publish quota or the fee is disabled' \
+  agent.md
+reject_pattern \
+  'paid publish is falsely described as an insufficient-balance 402' \
+  'insufficient balance returns 402 without publishing' \
+  agent.md
 
 if (( failed )); then
   printf 'money-settlement truth guard: FAIL\n' >&2
