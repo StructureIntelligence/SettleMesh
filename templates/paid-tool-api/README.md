@@ -1,10 +1,10 @@
 # paid-tool-api
 
-Sell one API endpoint, metered per call — **charge your users per use, with no billing code of your own.** SettleMesh handles login, the wallet debit, the ledger, and your payout; you just write the endpoint.
+Sell one API endpoint, metered per call — **admit user-paid calls without building a second billing system.** SettleMesh handles login and the authoritative wallet/ledger workflow; your endpoint only reports captured money when the platform returns explicit post-capture evidence.
 
-This starter exposes a single paid endpoint (`POST /api/tool`, a text summarizer) that bills the **logged-in caller's** SettleMesh wallet on every successful call. Swap the logic for whatever you want to sell.
+This starter exposes a single paid endpoint (`POST /api/tool`, a text summarizer) that delegates payment to the **logged-in caller's** SettleMesh wallet. A useful provider result is not itself proof of capture: the response stays `settlement_status: "unknown"` unless the platform returns its trusted `x-settle-charged-aev` header.
 
-> **Aev** is SettleMesh prepaid credit: **1 USD = 100 Aev**, funded via Stripe. Wallets are charged in Aev.
+> **Aev** is SettleMesh prepaid credit: **1 USD = 100 Aev**. Funding options are shown only when the live platform reports them available; this template does not assume card/Legal/provider availability.
 
 ## Quickstart
 
@@ -20,17 +20,18 @@ settlemesh deploy
 ## How a caller hits the paid endpoint
 
 1. The caller signs in once at `/__settle/login` (the platform auth gate; sets a durable `__settle_session` cookie).
-2. They POST to your endpoint. The call is billed to **their** Aev wallet — not yours:
+2. They POST to your endpoint. The payer session requests admission against **their** Aev wallet — not yours:
 
 ```bash
 curl -X POST https://YOUR-APP.run.settlemesh.io/api/tool \
   -H "Authorization: Bearer <your-settlemesh-session-token>" \
+  -H "Idempotency-Key: tool:<one-stable-operation-id>" \
   -H "Content-Type: application/json" \
   -d '{"text":"Long article here...","style":"bullets"}'
 ```
 
 ```json
-{ "ok": true, "summary": "...", "style": "bullets", "cost_aev": 6, "currency": "aev" }
+{ "ok": true, "summary": "...", "style": "bullets", "captured_aev": 6, "settlement_status": "captured", "idempotency_key": "tool:...", "currency": "aev" }
 ```
 
 The deployed app also serves a small docs/landing page (`public/index.html`) with a "try it" box.
@@ -38,12 +39,13 @@ The deployed app also serves a small docs/landing page (`public/index.html`) wit
 ## What you get
 
 - **Login** — SettleMesh OAuth, zero auth code. The auth gate (`/__settle/login`) handles sign-in and sets the payer session.
-- **Usage billing** — every successful call to `/api/tool` meters and bills the logged-in user automatically. Your margin is the `billing.markup` field in `settlemesh.json` (default `1.3`). You write no billing code.
-- **Payments** — callers fund their Aev wallet via Stripe on SettleMesh; you receive payouts. No payment integration on your side.
+- **Usage billing** — `/api/tool` forwards the logged-in user's delegated payer session and one stable idempotency key. Your margin is the `billing.markup` field in `settlemesh.json` (default `1.3`).
+- **Settlement truth** — only the explicit platform `x-settle-charged-aev` post-capture header is rendered as captured, including on a non-2xx response. Missing evidence remains `unknown`; use **Retry same operation** to resend the exact same input and `Idempotency-Key`, or inspect that operation's platform record. Never invent a fresh key for an uncertain outcome.
+- **Funding and payouts** — availability remains platform- and Legal-gated. Do not claim a card funding or payout path until the live response says it is available.
 
 ### How the billing wiring works (so you can change the tool safely)
 
-`server.js` authenticates to SettleMesh with the injected `SETTLEMESH_APP_API_KEY` and forwards the caller's session as the `X-Settle-Payer` header on the billable call — **that header is what charges the user instead of you.** If it's missing, the route returns `401` and never bills the developer. Keep that wiring and replace only the tool's input/prompt to sell something else.
+`server.js` authenticates to SettleMesh with the injected `SETTLEMESH_APP_API_KEY`, forwards the caller's session as `X-Settle-Payer`, and forwards a stable `Idempotency-Key`. If the payer is missing, the route returns `401` rather than falling back to the developer wallet. Keep that wiring and replace only the tool's input/prompt. Provider body fields such as `cost`, `amount`, or `charged` are untrusted capability output and must never be treated as settlement evidence.
 
 ## Make it yours
 

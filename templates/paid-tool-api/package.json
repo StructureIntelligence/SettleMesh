@@ -2,9 +2,10 @@
   "name": "paid-tool-api",
   "version": "1.0.0",
   "private": true,
-  "description": "A SettleMesh paid API: one metered endpoint that bills the logged-in user's Aev wallet per call.",
+  "description": "A SettleMesh paid API: one metered endpoint using delegated payer admission and explicit capture evidence.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test server.test.js"
   },
   "engines": {
     "node": ">=18"

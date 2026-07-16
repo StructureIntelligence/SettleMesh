@@ -19,6 +19,9 @@ sources=(
   templates/auth-payments-minimal/public/app.js
   templates/auth-payments-minimal/public/index.html
   templates/auth-payments-minimal/README.md
+  templates/paid-tool-api/server.js
+  templates/paid-tool-api/public/index.html
+  templates/paid-tool-api/README.md
 )
 
 failed=0
@@ -26,8 +29,10 @@ failed=0
 blind_retry_pattern='(?:(?<!not )(?<!never )retry\s+blindly.{0,120}(?:timeout|502)|(?:timeout|502).{0,120}(?<!not )(?<!never )retry\s+blindly)'
 failure_no_charge_pattern='(?:(?:http|network|timeout|502|call|action).{0,100}(?:fail(?:ed|ure)?|error).{0,100}(?:not|nothing|no\s+amount\s+was)\s+(?:was\s+)?charged|(?:not|nothing)\s+(?:was\s+)?charged.{0,120}(?:http|network|timeout|502|call|action).{0,60}(?:fail(?:ed|ure)?|error))'
 recursive_cost_pattern='(?:function\s+extractCost\s*\(|const\s+keys\s*=\s*\[[^]]*(?:cost|amount|charged)[^]]*\].{0,500}extractCost\s*\()'
+provider_cost_read_pattern='(?:response|result|r)\.(?:json|data|payload)(?:\?\.|\.)[^;\n]{0,160}(?:cost|amount|charged|billed)'
 estimate_as_charge_pattern='(?:charged\s*=.{0,160}(?:estimate|PRICE_)|actual\s*=.{0,160}(?:estimate|PRICE_)|(?:≈|approx(?:imate)?).{0,80}charged|estimate.{0,160}(?:charged|captured))'
 success_as_capture_pattern='(?:charged.{0,80}(?:on|after)\s+(?:provider\s+|http\s+)?success|(?:provider\s+|http\s+)?success.{0,80}(?:charged|captured))'
+raw_session_storage_pattern='(?:owner(?:Key)?\s*=?.{0,160}extractPayerToken|return\s+extractPayerToken\([^)]*\)\s*\|\|\s*[\x22\x27]anonymous[\x22\x27]|(?:insert|update).{0,200}(?:payer|session|token))'
 
 reject_pattern() {
   local label="$1"
@@ -92,6 +97,10 @@ run_self_tests() {
     'Network error — settlement is unknown; reconcile the same operation.'
   assert_rejects 'recursive cost miner' "$recursive_cost_pattern" \
     'function extractCost(value) { return value.children.map(extractCost); }'
+  assert_rejects 'direct provider cost field read' "$provider_cost_read_pattern" \
+    'const charged = response.json.data.cost;'
+  assert_allows 'provider output text extraction' "$provider_cost_read_pattern" \
+    'const text = response.json.data.text;'
   assert_rejects 'estimate labelled charged' "$estimate_as_charge_pattern" \
     'const charged = response.cost_aev || response.estimate_aev;'
   assert_allows 'estimate remains pre-call information' "$estimate_as_charge_pattern" \
@@ -100,6 +109,10 @@ run_self_tests() {
     'The user is charged on success only.'
   assert_allows 'capture evidence remains authoritative' "$success_as_capture_pattern" \
     'Provider success is output only; final charge requires trusted capture evidence.'
+  assert_rejects 'raw payer token becomes database owner' "$raw_session_storage_pattern" \
+    'return extractPayerToken(req) || "anonymous";'
+  assert_allows 'verified principal scopes database rows' "$raw_session_storage_pattern" \
+    'const principal = await resolveSettlePrincipal(req);'
 
   if (( self_failed )); then
     return 1
@@ -141,6 +154,20 @@ else
   printf 'safe funding URL contract: PASS\n'
 fi
 
+if ! node --test templates/paid-tool-api/server.test.js; then
+  printf 'paid-tool settlement authority contract: FAIL\n' >&2
+  failed=1
+else
+  printf 'paid-tool settlement authority contract: PASS\n'
+fi
+
+if ! node --test templates/agent-webapp-demo/lib/*.test.mjs; then
+  printf 'agent-webapp settlement authority contract: FAIL\n' >&2
+  failed=1
+else
+  printf 'agent-webapp settlement authority contract: PASS\n'
+fi
+
 # A transport result alone cannot prove whether a paid effect was captured.
 reject_pattern \
   'timeout/502 guidance says to retry blindly' \
@@ -157,7 +184,12 @@ reject_pattern \
   'recursive arbitrary response-field cost mining remains' \
   "$recursive_cost_pattern" \
   templates/ai-saas-paid-api/server.js \
-  templates/auth-payments-minimal/server.js
+  templates/auth-payments-minimal/server.js \
+  templates/paid-tool-api/server.js
+reject_pattern \
+  'provider response cost-like field is read as settlement data' \
+  "$provider_cost_read_pattern" \
+  templates/paid-tool-api/server.js
 
 # An estimate may be shown before/alongside an operation, but never relabelled
 # or accumulated as captured money when trusted capture evidence is absent.
@@ -167,7 +199,9 @@ reject_pattern \
   templates/ai-saas-paid-api/server.js \
   templates/ai-saas-paid-api/public/app.js \
   templates/auth-payments-minimal/server.js \
-  templates/auth-payments-minimal/public/app.js
+  templates/auth-payments-minimal/public/app.js \
+  templates/paid-tool-api/server.js \
+  templates/paid-tool-api/public/index.html
 reject_pattern \
   'provider/HTTP success is presented as capture proof' \
   "$success_as_capture_pattern" \
@@ -188,13 +222,79 @@ reject_pattern \
 
 for server in \
   templates/ai-saas-paid-api/server.js \
-  templates/auth-payments-minimal/server.js; do
+  templates/auth-payments-minimal/server.js \
+  templates/paid-tool-api/server.js; do
   require_pattern "$server" 'explicit trusted capture header' 'x-settle-charged-aev'
   require_pattern "$server" 'settlement state is explicit' 'settlement_status'
   require_pattern "$server" 'logical operation identity is forwarded' 'Idempotency-Key'
 done
+
+# A browser payer/session credential is an authorization secret, never a durable row owner.
+# Resolve it through the platform session authority and persist only its stable principal id.
+reject_pattern \
+  'raw payer/session token is used as a database identity' \
+  "$raw_session_storage_pattern" \
+  templates/agent-webapp-demo/app/api/snippets/route.ts
+reject_pattern \
+  'snippet persistence reads a raw payer/session token directly' \
+  'extractPayerToken' \
+  templates/agent-webapp-demo/app/api/snippets/route.ts
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'session is resolved by the stable platform authority' '/__settle/me'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'resolver returns a non-sensitive principal id' 'principalId'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'resolver verifies the authority authentication result' 'payload\.authenticated\s*!==\s*true'
+require_pattern templates/agent-webapp-demo/app/api/snippets/route.ts \
+  'snippet reads fail closed when identity cannot be verified' 'resolveSettlePrincipal'
+require_pattern templates/agent-webapp-demo/app/api/snippets/route.ts \
+  'database rows are scoped only by the verified principal' '\[principal\.principalId(?:,|\])'
+require_pattern templates/agent-webapp-demo/app/api/snippets/route.ts \
+  'database failure is a non-success response' 'database_query_failed'
+reject_pattern \
+  'database failure is projected as a successful empty list' \
+  'result\.error[\s\S]{0,240}snippets\s*:\s*\[\][\s\S]{0,120}status\s*:\s*200' \
+  templates/agent-webapp-demo/app/api/snippets/route.ts
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'failed refresh preserves the last truthful list' 'if\s*\(!res\.ok\s*\|\|\s*json\.error\)\s*\{[\s\S]{0,200}return;[\s\S]{0,160}setSnippets'
+reject_pattern \
+  'anonymous fallback can read or write shared rows' \
+  '(?:\|\|\s*[\x22\x27]anonymous[\x22\x27]|owner\s*=\s*[\x22\x27]anonymous[\x22\x27])' \
+  templates/agent-webapp-demo/app/api/snippets/route.ts
+
+# The demo's paid polish action must never fall back to the app-owner wallet, invent capture from a
+# provider result, or lose the logical operation identity needed for a safe replay.
+reject_pattern \
+  'polish provider success is presented as metered/captured' \
+  '(?:metered\s*:\s*true|Polished \(metered to you\))' \
+  templates/agent-webapp-demo/app/api/polish/route.ts \
+  templates/agent-webapp-demo/app/page.tsx
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'missing payer is rejected before invocation' 'if\s*\(!payerToken\)[\s\S]{0,300}status\s*:\s*401'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'payer authentication precedes input parsing' 'extractPayerToken\(req\)[\s\S]{0,500}status\s*:\s*401[\s\S]{0,500}await req\.json\(\)'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'polish requires one stable logical operation identity' 'Idempotency-Key'
+require_pattern templates/agent-webapp-demo/app/api/polish/route.ts \
+  'polish returns explicit settlement state' 'settlement_status'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'capability helper forwards logical operation identity' 'Idempotency-Key'
+require_pattern templates/agent-webapp-demo/lib/settlemesh.ts \
+  'capability helper exposes trusted response headers' 'response\.headers'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser preserves uncertain polish operation across reload' 'sessionStorage'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser exposes exact same-operation recovery' 'Retry same operation'
+require_pattern templates/agent-webapp-demo/app/page.tsx \
+  'browser calls an amount captured only from settlement state' 'settlement_status\s*===\s*[\x22\x27]captured[\x22\x27]'
 require_pattern templates/ai-saas-paid-api/server.js \
   'funding navigation validates the live URL before exposing it' 'const\s+topup\s*=\s*safeFundingURL\(detail\.topup_url\)'
+require_pattern templates/paid-tool-api/server.js \
+  'non-2xx response consumes trusted capture evidence' 'const\s+capture\s*=\s*captureEvidence\(r\.headers\);[\s\S]{0,160}if\s*\(r\.status\s*>=\s*400\)'
+require_pattern templates/paid-tool-api/server.js \
+  'unknown settlement gives an executable same-operation recovery' 'exact same input and Idempotency-Key'
+require_pattern templates/paid-tool-api/public/index.html \
+  'browser exposes an exact same-operation retry' 'Retry same operation'
 
 for client in \
   templates/ai-saas-paid-api/public/app.js \

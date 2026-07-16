@@ -1,32 +1,92 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { currentSettleUser, settleLoginPath, settleLogoutPath } from "@/lib/settlemesh";
+import {
+  currentSettleUser,
+  settleLoginPath,
+  settleLogoutPath,
+  type SettleUser,
+} from "@/lib/settlemesh";
+import {
+  createPolishOperation,
+  resolveStoredPolishOperation,
+  POLISH_OPERATION_STORAGE_KEY,
+} from "@/lib/polish-operation.mjs";
 import { PoweredBySettleMesh } from "@/components/powered-by-settlemesh";
 
 type Snippet = { id: number; title: string; body: string; created_at: string };
+type PolishOperation = {
+  id: string;
+  input: string;
+  principalId: string;
+  result?: string;
+};
+
+function loadPolishOperation(principalId: string): {
+  operation: PolishOperation | null;
+  shouldClear: boolean;
+} {
+  if (typeof window === "undefined") return { operation: null, shouldClear: false };
+  return resolveStoredPolishOperation(
+    sessionStorage.getItem(POLISH_OPERATION_STORAGE_KEY),
+    principalId
+  ) as { operation: PolishOperation | null; shouldClear: boolean };
+}
+
+function storePolishOperation(value: PolishOperation | null) {
+  if (typeof window === "undefined") return;
+  if (value) sessionStorage.setItem(POLISH_OPERATION_STORAGE_KEY, JSON.stringify(value));
+  else sessionStorage.removeItem(POLISH_OPERATION_STORAGE_KEY);
+}
+
+function apiErrorMessage(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const error = value as { message?: unknown; code?: unknown };
+    if (typeof error.message === "string") return error.message;
+    if (typeof error.code === "string") return error.code;
+  }
+  return "The request could not be completed.";
+}
 
 export default function Home() {
-  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [user, setUser] = useState<SettleUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [snippetsLoaded, setSnippetsLoaded] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [polishing, setPolishing] = useState(false);
+  const [polishOperation, setPolishOperation] = useState<PolishOperation | null>(null);
   const [note, setNote] = useState<string>("");
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/snippets", { cache: "no-store" });
     const json = await res.json();
+    if (!res.ok || json.error) {
+      setNote(apiErrorMessage(json.error));
+      return;
+    }
     setSnippets(Array.isArray(json.snippets) ? json.snippets : []);
-    if (json.error) setNote(json.error);
+    setSnippetsLoaded(true);
   }, []);
 
   useEffect(() => {
     currentSettleUser().then((u) => {
       setUser(u);
       setAuthChecked(true);
+      const principalId = u?.id || u?.sub || "";
+      const stored = principalId
+        ? loadPolishOperation(principalId)
+        : { operation: null, shouldClear: false };
+      if (stored.operation) {
+        setPolishOperation(stored.operation);
+        setBody(stored.operation.result || stored.operation.input);
+        setNote(`Recovered uncertain polish operation ${stored.operation.id}. Retry same operation reuses the exact original input and Idempotency-Key.`);
+      } else if (stored.shouldClear) {
+        storePolishOperation(null);
+      }
     });
     refresh();
   }, [refresh]);
@@ -42,7 +102,7 @@ export default function Home() {
         body: JSON.stringify({ title, body }),
       });
       const json = await res.json();
-      if (json.error) setNote(json.error);
+      if (json.error) setNote(apiErrorMessage(json.error));
       else {
         setTitle("");
         setBody("");
@@ -53,24 +113,75 @@ export default function Home() {
     }
   }
 
-  // The metered capability call. The end user pays for this out of their own
-  // Aev balance — the app writes no billing code.
+  // One immutable body/key pair represents one logical paid operation. Unknown outcomes keep both
+  // across reload and only trusted platform capture evidence is rendered as captured money.
   async function polish() {
-    if (!body.trim()) return;
+    const principalId = user?.id || user?.sub || "";
+    if (!user || !principalId) {
+      setNote("Sign in with a valid SettleMesh identity before polishing.");
+      return;
+    }
+    if (!polishOperation && !body.trim()) return;
+    if (!polishOperation && body.trim().length > 10000) {
+      setNote("Limit polish input to 10000 characters.");
+      return;
+    }
+    const operation = polishOperation || {
+      ...createPolishOperation(body.trim(), principalId),
+    } as PolishOperation;
+    if (!polishOperation) {
+      setPolishOperation(operation);
+      storePolishOperation(operation);
+    }
     setPolishing(true);
     setNote("");
     try {
       const res = await fetch("/api/polish", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ body }),
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": operation.id,
+        },
+        body: JSON.stringify({ body: operation.input }),
       });
       const json = await res.json();
-      if (json.error) setNote(json.error);
-      else {
-        setBody(json.polished || body);
-        setNote(json.metered ? "Polished (metered to you)." : json.note || "Polished.");
+      const captured = json.settlement_status === "captured" &&
+        typeof json.captured_aev === "number" &&
+        Number.isFinite(json.captured_aev) &&
+        json.captured_aev >= 0;
+
+      // login_required is a pre-invocation rejection, so there is no uncertain paid effect to retain.
+      if (res.status === 401) {
+        setNote(apiErrorMessage(json.error));
+        setPolishOperation(null);
+        storePolishOperation(null);
+        return;
       }
+      if (!res.ok || json.error) {
+        setNote(captured
+          ? `${apiErrorMessage(json.error)} Trusted evidence reports ${json.captured_aev} Aev captured for operation ${operation.id}; inspect its platform record before retrying.`
+          : `${apiErrorMessage(json.error)} Settlement is unknown for operation ${operation.id}; Retry same operation sends the exact original input and Idempotency-Key.`);
+        return;
+      }
+
+      const polished = typeof json.polished === "string" ? json.polished : operation.input;
+      setBody(polished);
+      if (json.settlement_status === "not_applicable") {
+        setNote(json.note || "Local polish completed without a paid operation.");
+        setPolishOperation(null);
+        storePolishOperation(null);
+      } else if (captured) {
+        setNote(`Polished · trusted platform evidence reports ${json.captured_aev} Aev captured.`);
+        setPolishOperation(null);
+        storePolishOperation(null);
+      } else {
+        const pending = { ...operation, result: polished };
+        setPolishOperation(pending);
+        storePolishOperation(pending);
+        setNote(`Polished output is preserved, but settlement is unknown for operation ${operation.id}. Retry same operation sends the exact original input and Idempotency-Key.`);
+      }
+    } catch {
+      setNote(`Network outcome is unknown for operation ${operation.id}. Retry same operation sends the exact original input and Idempotency-Key.`);
     } finally {
       setPolishing(false);
     }
@@ -111,6 +222,7 @@ export default function Home() {
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          readOnly={!!polishOperation}
           placeholder="Paste a snippet or note…"
           rows={5}
           style={{ ...inputStyle, resize: "vertical", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
@@ -119,8 +231,8 @@ export default function Home() {
           <button onClick={save} disabled={busy} style={buttonStyle}>
             {busy ? "Saving…" : "Save snippet"}
           </button>
-          <button onClick={polish} disabled={polishing} style={ghostButtonStyle}>
-            {polishing ? "Polishing…" : "Polish with AI (metered)"}
+          <button onClick={polish} disabled={polishing || !user} style={ghostButtonStyle}>
+            {polishing ? "Polishing…" : polishOperation ? "Retry same operation" : "Polish with AI (paid)"}
           </button>
         </div>
         {note && <p style={{ margin: 0, fontSize: 13, color: "#9aa3b2" }}>{note}</p>}
@@ -130,7 +242,11 @@ export default function Home() {
         <h2 style={{ fontSize: 15, color: "#9aa3b2", fontWeight: 600, margin: "0 0 12px" }}>
           Your snippets {snippets.length ? `(${snippets.length})` : ""}
         </h2>
-        {snippets.length === 0 ? (
+        {!snippetsLoaded ? (
+          <p style={{ color: "#6b7280", fontSize: 14 }}>
+            {note ? "Snippets are unavailable; the previous list was not replaced with an empty result." : "Loading snippets…"}
+          </p>
+        ) : snippets.length === 0 ? (
           <p style={{ color: "#6b7280", fontSize: 14 }}>Nothing saved yet.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
