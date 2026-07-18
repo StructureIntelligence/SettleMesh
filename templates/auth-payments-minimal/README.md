@@ -25,14 +25,26 @@ Production deployment authorization is currently unavailable: `app_deployments.c
   `POST /v1/capabilities/{id}/invoke`. The user's session is forwarded as the `X-Settle-Payer`
   header, so the **logged-in user's** Aev wallet is charged — not yours. Configure the markup in
   `settlemesh.json` (`billing.markup`).
-- **Payments** — the UI shows a read-only price estimate from `/v1/billing/quote` before the action.
-  It reports captured money afterward only from the explicit platform `x-settle-charged-aev` header;
-  an HTTP/network failure or missing capture evidence remains unknown and keeps the same operation
-  identity for reconciliation. This minimal template does not fabricate a funding path; add one only
-  when the live server reports its Legal/provider gates available and returns the path.
+- **Payments** — the only price authority is a read-only live `POST /v1/billing/quote` for the
+  exact same input that will be invoked. The browser posts its pending input snapshot to the local
+  `/api/quote` adapter; `/api/action` quotes that same stored object again immediately before invoke.
+  **No price is assumed:** there is no static or hardcoded
+  amount fallback. **Quote failure prevents invoke** — transport, backend, provider, availability,
+  or contract failures are projected as a machine-readable
+  `{code,message,fix,retryable,trace_id?}` object and the paid action does not run. The UI renders
+  `quote_kind` truthfully (`exact` vs `representative_floor` vs `hold_ceiling`) and never labels a
+  floor or hold ceiling as a final capture charge. Captured money afterward is shown only from the
+  explicit platform `x-settle-charged-aev` header; an HTTP/network failure or missing capture
+  evidence remains unknown and keeps the same operation identity for reconciliation. This minimal
+  template does not fabricate a funding path; add one only when the live server reports its
+  Legal/provider gates available and returns the path.
 
 The whole loop lives in `server.js` (`/api/action`) and `public/` (a single page). No npm install —
 pure Node 18+ builtins, zero dependencies.
+
+```bash
+npm test
+```
 
 ## Make it yours
 

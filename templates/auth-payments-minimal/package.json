@@ -4,7 +4,8 @@
   "private": true,
   "description": "The smallest possible paid app on SettleMesh: login + one paid action billed to the logged-in user's Aev wallet.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test server.test.js public/app.test.js"
   },
   "engines": {
     "node": ">=18"

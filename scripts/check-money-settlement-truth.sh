@@ -161,6 +161,15 @@ else
   printf 'paid-tool settlement authority contract: PASS\n'
 fi
 
+if ! node --test \
+  templates/auth-payments-minimal/server.test.js \
+  templates/auth-payments-minimal/public/app.test.js; then
+  printf 'auth-payments-minimal quote authority contract: FAIL\n' >&2
+  failed=1
+else
+  printf 'auth-payments-minimal quote authority contract: PASS\n'
+fi
+
 if ! node --test templates/agent-webapp-demo/lib/*.test.mjs; then
   printf 'agent-webapp settlement authority contract: FAIL\n' >&2
   failed=1
@@ -308,6 +317,34 @@ require_pattern templates/ai-saas-paid-api/public/app.js \
   'AI retry preserves the original request body' 'state\.operation\s*=\s*\{[^}]*prompt:[\s\S]{0,800}operation\.prompt'
 require_pattern templates/auth-payments-minimal/public/app.js \
   'minimal retry preserves the original request body' 'operation\s*=\s*operation\s*\|\|[\s\S]{0,200}input:[\s\S]{0,800}currentOperation\.input'
+reject_pattern \
+  'auth-payments-minimal still assumes a static PRICE_AEV fallback' \
+  'PRICE_AEV' \
+  templates/auth-payments-minimal/server.js \
+  templates/auth-payments-minimal/public/app.js
+reject_pattern \
+  'auth-payments-minimal still projects static estimate_aev' \
+  'estimate_aev' \
+  templates/auth-payments-minimal/server.js \
+  templates/auth-payments-minimal/public/app.js
+require_pattern templates/auth-payments-minimal/server.js \
+  'paid action quotes before invoke' 'quoteAction\([\s\S]{0,800}invokeCapability'
+require_pattern templates/auth-payments-minimal/server.js \
+  'action-path quote failure blocks invoke' 'const\s+quoted\s*=\s*await\s+quoteAction\(payer,\s*input\);[\s\S]{0,300}if\s*\(!quoted\.ok\)[\s\S]{0,300}return\s+sendPreEffectProblem[\s\S]{0,700}invokeCapability'
+require_pattern templates/auth-payments-minimal/server.js \
+  'non-2xx invoke preserves trusted capture evidence' 'const\s+capture\s*=\s*captureEvidence\(r\.headers\);[\s\S]{0,200}if\s*\(r\.status\s*>=\s*400\)'
+require_pattern templates/auth-payments-minimal/server.js \
+  'live quote posts the billing quote path' 'POST".{0,8}"/v1/billing/quote|/v1/billing/quote'
+require_pattern templates/auth-payments-minimal/server.js \
+  'canonical quote kinds are preserved' 'representative_floor'
+require_pattern templates/auth-payments-minimal/public/app.js \
+  'UI distinguishes exact vs floor vs hold ceiling' 'hold_ceiling'
+require_pattern templates/auth-payments-minimal/public/app.js \
+  'UI surfaces quote failure code and fix' 'err\.code'
+require_pattern templates/auth-payments-minimal/README.md \
+  'README states quote failure prevents invoke' 'Quote failure prevents invoke'
+require_pattern templates/auth-payments-minimal/README.md \
+  'README states no price is assumed' 'No price is assumed'
 
 require_pattern agent.md \
   'unknown outcomes preserve the same logical operation identity' \
