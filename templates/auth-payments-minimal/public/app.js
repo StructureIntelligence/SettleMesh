@@ -1,33 +1,93 @@
 // Tiny client. Talks ONLY to this app's /api/* — never to SettleMesh directly, never sees a key.
 const $ = (id) => document.getElementById(id);
 let spent = 0;
-const OPERATION_STORAGE_KEY = "settlemesh.auth-payments-minimal.pending-operation.v1";
+const LEGACY_OPERATION_STORAGE_KEY = "settlemesh.auth-payments-minimal.pending-operation.v1";
+const OPERATION_STORAGE_PREFIX = "settlemesh.auth-payments-minimal.pending-operation.v2.";
 const OPERATION_ID = /^[A-Za-z0-9._:-]{8,200}$/;
+// Opaque OIDC subjects are provider-defined. Accept bounded visible ASCII that is safe in an HTTP
+// header; do not encode assumptions about UUIDs, emails, or one identity provider.
+const PRINCIPAL_ID = /^[\x21-\x7E]{1,200}$/;
+// Slightly longer than the server's quote budget so the browser normally receives the canonical
+// server machine error instead of winning the timeout race with a local transport error.
+const QUOTE_UI_TIMEOUT_MS = 20000;
 
-function loadOperation() {
+function validPrincipal(value) {
+  return typeof value === "string" && PRINCIPAL_ID.test(value);
+}
+
+// /__settle/me is the browser identity authority. Prefer OIDC `sub`; use `id` only when
+// `sub` is absent. A present malformed sub fails closed instead of silently changing identity.
+function principalFromMe(payload) {
+  if (!payload || payload.authenticated !== true || !payload.user || typeof payload.user !== "object") return null;
+  const user = payload.user;
+  if (Object.hasOwn(user, "sub") && user.sub !== "") return validPrincipal(user.sub) ? user.sub : null;
+  return validPrincipal(user.id) ? user.id : null;
+}
+
+function operationStorageKey(principal) {
+  return validPrincipal(principal) ? OPERATION_STORAGE_PREFIX + encodeURIComponent(principal) : null;
+}
+
+function parseOperation(raw, expectedPrincipal) {
   try {
-    const value = JSON.parse(sessionStorage.getItem(OPERATION_STORAGE_KEY) || "null");
+    const value = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (
+      value &&
+      value.version === 2 &&
+      value.principal === expectedPrincipal &&
+      validPrincipal(value.principal) &&
+      OPERATION_ID.test(value.id) &&
+      value.input &&
+      typeof value.input === "object" &&
+      !Array.isArray(value.input)
+    ) {
+      return {
+        version: 2,
+        principal: value.principal,
+        id: value.id,
+        input: value.input,
+        effect_may_have_started: value.effect_may_have_started !== false,
+      };
+    }
+  } catch { /* invalid storage is not executable */ }
+  return null;
+}
+
+function readPrincipalOperation(storage, principal) {
+  const key = operationStorageKey(principal);
+  if (!key || !storage) return null;
+  try { return parseOperation(storage.getItem(key), principal); } catch { return null; }
+}
+
+// v1 records predate principal binding. Keep the record untouched as recovery evidence, but never
+// adopt it into a principal slot or make it executable.
+function readLegacyOperation(storage) {
+  if (!storage) return null;
+  try {
+    const value = JSON.parse(storage.getItem(LEGACY_OPERATION_STORAGE_KEY) || "null");
     if (value && OPERATION_ID.test(value.id) && value.input && typeof value.input === "object" && !Array.isArray(value.input)) {
       return {
         id: value.id,
         input: value.input,
-        // Old stored records predate this marker, so preserve them conservatively as possible effects.
         effect_may_have_started: value.effect_may_have_started !== false,
       };
     }
-    sessionStorage.removeItem(OPERATION_STORAGE_KEY);
-  } catch { /* storage unavailable or stale: keep the in-memory safety path */ }
+  } catch { /* malformed legacy storage is not executable */ }
   return null;
 }
 
 function storeOperation(value) {
+  const key = operationStorageKey(currentPrincipal);
+  if (!key) return;
   try {
-    if (value) sessionStorage.setItem(OPERATION_STORAGE_KEY, JSON.stringify(value));
-    else sessionStorage.removeItem(OPERATION_STORAGE_KEY);
+    if (value) sessionStorage.setItem(key, JSON.stringify(value));
+    else sessionStorage.removeItem(key);
   } catch { /* storage unavailable: the current page still preserves the operation */ }
 }
 
-let operation = loadOperation();
+let currentPrincipal = null;
+let operation = null;
+let legacyOperation = null;
 let quotedInput = null;
 
 // One edit point for the example action body. The displayed quote and a new operation both snapshot
@@ -52,8 +112,13 @@ function newOperationId() {
 
 function updateOperationUI() {
   // Preserve the original input snapshot and key until capture; the button can only replay that pair.
+  if (legacyOperation) {
+    $("runlabel").textContent = "Reconcile legacy operation";
+    $("run").title = "This unbound legacy operation cannot be invoked; reconcile its idempotency key first";
+    return;
+  }
   $("runlabel").textContent = operation ? "Retry same operation" : "Run paid action";
-  $("run").title = operation ? "Retries the same request body with the same Idempotency-Key" : "";
+  $("run").title = operation ? "Retries the same account, request body, and Idempotency-Key" : "";
 }
 
 function fmtAev(n) {
@@ -150,48 +215,155 @@ function showQuoteFailure(error, quote) {
   quotedInput = null;
 }
 
-async function refresh() {
-  $("run").disabled = true;
-  $("retryquote").disabled = true;
-  let me;
-  try {
-    const response = await fetch("/api/me");
-    me = await response.json();
-  } catch {
-    $("signin").hidden = true;
-    $("app").hidden = false;
-    showQuoteFailure({
-      code: "quote_ui_backend_unavailable",
-      message: "This app could not read its authentication state.",
-      fix: "Check the app/backend connection, then retry. The paid action has not run.",
-      retryable: true,
-    });
-    return;
-  }
-  $("signin").hidden = !!me.logged_in;
-  $("app").hidden = !me.logged_in;
-  if (!me.logged_in) return;
+function browserStorage() {
+  try { return sessionStorage; } catch { return null; }
+}
 
-  const input = copyInput(operation ? operation.input : defaultActionInput());
-  let result;
+function activatePrincipal(principal) {
+  currentPrincipal = principal;
+  operation = readPrincipalOperation(browserStorage(), principal);
+  quotedInput = null;
+  updateOperationUI();
+}
+
+async function resolveBrowserIdentity() {
+  let response;
+  let payload;
+  try {
+    response = await fetch("/__settle/me", { cache: "no-store" });
+    payload = await response.json();
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "identity_unavailable",
+        message: "This app could not resolve the current SettleMesh identity.",
+        fix: "Check the SettleMesh auth edge, then retry. The paid action has not run.",
+        retryable: true,
+      },
+    };
+  }
+  if (response.status === 401 || (payload && payload.authenticated === false)) {
+    return { ok: true, logged_in: false };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: {
+        code: "identity_unavailable",
+        message: "The SettleMesh identity endpoint is unavailable.",
+        fix: "Retry identity resolution before quoting or running a paid action.",
+        retryable: response.status >= 500,
+      },
+    };
+  }
+  const principal = principalFromMe(payload);
+  if (!principal) {
+    return {
+      ok: false,
+      error: {
+        code: "identity_principal_invalid",
+        message: "The signed-in identity has no valid stable sub or id.",
+        fix: "Sign out and sign in again. Do not run the paid action until identity is stable.",
+        retryable: false,
+      },
+    };
+  }
+  return { ok: true, logged_in: true, principal };
+}
+
+function showLegacyRecovery(record) {
+  showQuoteFailure({
+    code: "legacy_operation_principal_unbound",
+    message: `Stored operation ${record.id} predates account binding and cannot be replayed safely.`,
+    fix: `Reconcile idempotency key ${record.id} in SettleMesh activity. Keep this record until its settlement is confirmed terminal; it will not be invoked by this app.`,
+    retryable: false,
+  });
+  updateOperationUI();
+}
+
+async function fetchReadOnlyQuote(input, principal, options = {}) {
+  const requestedTimeout = Number(options.timeoutMs);
+  const timeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
+    ? Math.min(requestedTimeout, 60000)
+    : QUOTE_UI_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const response = await fetch("/api/quote", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Settle-Operation-Principal": principal,
+      },
       body: JSON.stringify(input),
+      signal: controller.signal,
     });
-    result = await response.json();
-    if (response.status === 401 && result.login) {
-      location.href = result.login;
-      return;
+    return { response, result: await response.json() };
+  } catch (error) {
+    if (timedOut || (error && error.name === "AbortError")) {
+      return {
+        error: {
+          code: "quote_ui_timeout",
+          message: "The read-only quote timed out.",
+          fix: "Retry the quote. The paid action has not run.",
+          retryable: true,
+        },
+      };
     }
-  } catch {
-    showQuoteFailure({
-      code: "quote_ui_backend_unavailable",
-      message: "This app could not reach its read-only quote endpoint.",
-      fix: "Check the app/backend connection, then retry the quote. The paid action has not run.",
-      retryable: true,
-    });
+    return {
+      error: {
+        code: "quote_ui_backend_unavailable",
+        message: "This app could not reach its read-only quote endpoint.",
+        fix: "Check the app/backend connection, then retry the quote. The paid action has not run.",
+        retryable: true,
+      },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refresh() {
+  $("run").disabled = true;
+  $("retryquote").disabled = true;
+  const identity = await resolveBrowserIdentity();
+  if (!identity.ok) {
+    $("signin").hidden = true;
+    $("app").hidden = false;
+    showQuoteFailure(identity.error);
+    return;
+  }
+  $("signin").hidden = identity.logged_in;
+  $("app").hidden = !identity.logged_in;
+  if (!identity.logged_in) {
+    currentPrincipal = null;
+    operation = null;
+    quotedInput = null;
+    updateOperationUI();
+    return;
+  }
+
+  if (identity.principal !== currentPrincipal) activatePrincipal(identity.principal);
+  legacyOperation = readLegacyOperation(browserStorage());
+  if (legacyOperation) {
+    showLegacyRecovery(legacyOperation);
+    return;
+  }
+
+  const input = copyInput(operation ? operation.input : defaultActionInput());
+  const quoted = await fetchReadOnlyQuote(input, currentPrincipal);
+  if (quoted.error) {
+    showQuoteFailure(quoted.error);
+    return;
+  }
+  const { response, result } = quoted;
+  if (response.status === 401 && result.login) {
+    location.href = result.login;
     return;
   }
 
@@ -202,6 +374,7 @@ async function refresh() {
 
   $("quoteerr").hidden = true;
   $("retryquote").hidden = true;
+  $("err").hidden = true;
   $("price").textContent = formatQuote(result.quote);
   $("quotedetail").textContent = formatQuoteDetails(result.quote);
   $("quotedetail").hidden = !$("quotedetail").textContent;
@@ -218,9 +391,48 @@ async function run() {
   $("run").disabled = true;
   $("err").hidden = true;
   $("out").hidden = true;
+  const identity = await resolveBrowserIdentity();
+  if (!identity.ok) {
+    $("err").textContent = formatMachineError(identity.error, "Identity is unavailable; the paid action has not run.");
+    $("err").hidden = false;
+    $("retryquote").hidden = false;
+    $("retryquote").disabled = false;
+    updateOperationUI();
+    return;
+  }
+  if (!identity.logged_in) {
+    location.href = "/__settle/login";
+    return;
+  }
+  if (identity.principal !== currentPrincipal) {
+    activatePrincipal(identity.principal);
+    showQuoteFailure({
+      code: "operation_principal_changed",
+      message: "The signed-in account changed before the paid action could start.",
+      fix: "Review a new quote for the current account. The previous account's recovery record remains preserved.",
+      retryable: true,
+    });
+    return;
+  }
+  legacyOperation = readLegacyOperation(browserStorage());
+  if (legacyOperation) {
+    showLegacyRecovery(legacyOperation);
+    return;
+  }
+  if (!quotedInput) {
+    showQuoteFailure({
+      code: "quote_required",
+      message: "A current live quote is required before this action can run.",
+      fix: "Retry the read-only quote for this account and input.",
+      retryable: true,
+    });
+    return;
+  }
   operation = operation || {
+    version: 2,
+    principal: currentPrincipal,
     id: newOperationId(),
-    input: copyInput(quotedInput || defaultActionInput()),
+    input: copyInput(quotedInput),
     effect_may_have_started: false,
   };
   const currentOperation = operation;
@@ -233,7 +445,11 @@ async function run() {
   try {
     const r = await fetch("/api/action", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Idempotency-Key": currentOperation.id },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": currentOperation.id,
+        "X-Settle-Operation-Principal": currentPrincipal,
+      },
       // TODO(you): send whatever your chosen capability needs in the body.
       body: JSON.stringify(currentOperation.input),
     });
@@ -330,5 +546,10 @@ if (typeof module !== "undefined" && module.exports) {
     formatQuote,
     formatQuoteDetails,
     operationAfterKnownPreEffect,
+    principalFromMe,
+    operationStorageKey,
+    readPrincipalOperation,
+    readLegacyOperation,
+    fetchReadOnlyQuote,
   };
 }

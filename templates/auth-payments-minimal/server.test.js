@@ -8,6 +8,10 @@ process.env.SETTLEMESH_BASE_URL = "https://quote-authority.test";
 
 const serverPath = path.join(__dirname, "server.js");
 const source = fs.readFileSync(serverPath, "utf8");
+const TEST_PRINCIPAL_HEADERS = {
+  "x-settle-user-id": "user-test",
+  "x-settle-operation-principal": "user-test",
+};
 
 test("source removes every static/assumed price fallback", () => {
   assert.equal(source.includes("PRICE_AEV"), false, "PRICE_AEV must be removed");
@@ -222,6 +226,95 @@ test("quoteAction is the only price authority and never invents a static amount"
   }
 });
 
+test("quoteAction aborts only the read-only quote and returns a retryable timeout contract", async () => {
+  const { quoteAction } = require("./server.js");
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+  });
+  try {
+    const result = await quoteAction("payer-session", { prompt: "hello" }, { timeoutMs: 5 });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 504);
+    assert.equal(result.error.code, "quote_timeout");
+    assert.equal(result.error.retryable, true);
+  } finally {
+    globalThis.fetch = nativeFetch;
+  }
+});
+
+test("paid action fails closed before quote when trusted and bound principals are missing or differ", async (t) => {
+  const { server } = require("./server.js");
+  const nativeFetch = globalThis.fetch;
+  let externalCalls = 0;
+  globalThis.fetch = async () => {
+    externalCalls += 1;
+    return new Response("unexpected", { status: 500 });
+  };
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    globalThis.fetch = nativeFetch;
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  });
+  const address = server.address();
+  const baseHeaders = {
+    authorization: "Bearer test-payer-session",
+    "content-type": "application/json",
+    "idempotency-key": "action:principal-contract",
+  };
+
+  for (const [headers, expectedCode] of [
+    [{ ...baseHeaders, "x-settle-operation-principal": "user-alice" }, "operation_principal_unavailable"],
+    [{ ...baseHeaders, "x-settle-user-id": "user-alice" }, "operation_principal_binding_required"],
+    [{ ...baseHeaders, "x-settle-user-id": "user-bob", "x-settle-operation-principal": "user-alice" }, "operation_principal_mismatch"],
+  ]) {
+    const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/action`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prompt: "must not run" }),
+    });
+    const payload = await response.json();
+    assert.ok(response.status >= 400);
+    assert.equal(payload.error.code, expectedCode);
+    assert.equal(payload.effect_started, false);
+    assert.equal(payload.phase, "identity");
+  }
+  assert.equal(externalCalls, 0, "identity failures must stop before quote and invoke");
+});
+
+test("quote adapter requires the same trusted principal binding before upstream quote", async (t) => {
+  const { server } = require("./server.js");
+  const nativeFetch = globalThis.fetch;
+  let externalCalls = 0;
+  globalThis.fetch = async () => {
+    externalCalls += 1;
+    return new Response("unexpected", { status: 500 });
+  };
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    globalThis.fetch = nativeFetch;
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  });
+
+  const address = server.address();
+  const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/quote`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-payer-session",
+      "content-type": "application/json",
+      "x-settle-user-id": "user-bob",
+      "x-settle-operation-principal": "user-alice",
+    },
+    body: JSON.stringify({ prompt: "must not quote" }),
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(payload.error.code, "operation_principal_mismatch");
+  assert.equal(payload.effect_started, false);
+  assert.equal(externalCalls, 0);
+});
+
 describe("HTTP quote authority routes", { concurrency: 1 }, () => {
   test("POST /api/action quotes the exact input and does not invoke when quote fails", async (t) => {
     const { server } = require("./server.js");
@@ -257,6 +350,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/action`, {
       method: "POST",
       headers: {
+        ...TEST_PRINCIPAL_HEADERS,
         authorization: "Bearer test-payer-session",
         "content-type": "application/json",
         "idempotency-key": "action:test-operation-1",
@@ -284,7 +378,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const calls = [];
     globalThis.fetch = async (url, init) => {
       const parsed = init.body ? JSON.parse(init.body) : null;
-      calls.push({ url: String(url), method: init.method, body: parsed });
+      calls.push({ url: String(url), method: init.method, body: parsed, signal: init.signal });
       if (String(url).includes("/v1/billing/quote")) {
         return Response.json({
           data: {
@@ -322,6 +416,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/action`, {
       method: "POST",
       headers: {
+        ...TEST_PRINCIPAL_HEADERS,
         authorization: "Bearer test-payer-session",
         "content-type": "application/json",
         "idempotency-key": "action:test-operation-2",
@@ -336,6 +431,8 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     assert.match(calls[1].url, /\/invoke$/);
     assert.deepEqual(calls[0].body.input, { prompt: "same-input" });
     assert.deepEqual(calls[1].body.input, { prompt: "same-input" });
+    assert.ok(calls[0].signal instanceof AbortSignal, "read-only quote must have a bounded timeout");
+    assert.equal(calls[1].signal, undefined, "invoke outcome must not be made ambiguous by the quote timeout");
     assert.equal(payload.quote.quote_kind, "exact");
     assert.equal(payload.quote.total_credits, 3);
     assert.equal(payload.settlement_status, "captured");
@@ -378,6 +475,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/action`, {
       method: "POST",
       headers: {
+        ...TEST_PRINCIPAL_HEADERS,
         authorization: "Bearer test-payer-session",
         "content-type": "application/json",
         "idempotency-key": "action:test-operation-error-capture",
@@ -424,6 +522,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/action`, {
       method: "POST",
       headers: {
+        ...TEST_PRINCIPAL_HEADERS,
         authorization: "Bearer test-payer-session",
         "content-type": "application/json",
         "idempotency-key": "action:test-operation-no-ceiling",
@@ -484,6 +583,7 @@ describe("HTTP quote authority routes", { concurrency: 1 }, () => {
     const quoteResponse = await nativeFetch(`http://127.0.0.1:${address.port}/api/quote`, {
       method: "POST",
       headers: {
+        ...TEST_PRINCIPAL_HEADERS,
         authorization: "Bearer test-payer-session",
         "content-type": "application/json",
       },
@@ -523,6 +623,7 @@ test("POST /api/action rejects malformed JSON before quote or invoke", async (t)
         path: "/api/action",
         method: "POST",
         headers: {
+          ...TEST_PRINCIPAL_HEADERS,
           authorization: "Bearer test-payer-session",
           "content-type": "application/json",
           "idempotency-key": "action:test-operation-bad-json",

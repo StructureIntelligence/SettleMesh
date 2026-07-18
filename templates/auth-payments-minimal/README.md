@@ -20,7 +20,9 @@ Production deployment authorization is currently unavailable: `app_deployments.c
 ## What you get
 
 - **Login** — SettleMesh OAuth at `/__settle/login`. `auth.mode: lazy` lets anyone see the page;
-  the paid action requires sign-in.
+  the paid action requires sign-in. The browser resolves the stable principal from same-origin
+  `/__settle/me` (`user.sub`, or `user.id` only when `sub` is absent). It never binds recovery to a
+  session token or token hash.
 - **Usage billing** — the one paid action calls a metered capability via
   `POST /v1/capabilities/{id}/invoke`. The user's session is forwarded as the `X-Settle-Payer`
   header, so the **logged-in user's** Aev wallet is charged — not yours. Configure the markup in
@@ -38,9 +40,26 @@ Production deployment authorization is currently unavailable: `app_deployments.c
   evidence remains unknown and keeps the same operation identity for reconciliation. This minimal
   template does not fabricate a funding path; add one only when the live server reports its
   Legal/provider gates available and returns the path.
+- **Account-bound recovery** — pending operations live in separate `sessionStorage` slots per
+  validated principal and carry that non-secret principal binding. Immediately before an action,
+  the browser resolves `/__settle/me` again. The server compares the binding with the trusted
+  `x-settle-user-id` injected by the SettleMesh auth edge (which strips client spoofing) before any
+  quote or invoke. Missing, invalid, or mismatched identity fails pre-effect. A legacy unbound v1
+  record remains quarantined as reconciliation evidence and is never replayed or silently migrated.
+- **Bounded quote waiting** — read-only quote calls use `AbortController` and return retryable
+  `quote_timeout` / `quote_ui_timeout` machine errors. The default server quote timeout is 15 seconds
+  and may be set from 100–60000 ms with `SETTLEMESH_QUOTE_TIMEOUT_MS`; the browser waits 20 seconds
+  so it normally receives that canonical server error instead of masking it. The capability invoke
+  does not inherit either timeout: once a paid effect may have started, the original input and
+  `Idempotency-Key` remain available for replay/reconciliation instead of manufacturing a fresh try.
 
 The whole loop lives in `server.js` (`/api/action`) and `public/` (a single page). No npm install —
 pure Node 18+ builtins, zero dependencies.
+
+The principal comparison assumes the app is reached through the SettleMesh auth edge. Do not expose
+`/api/quote` or `/api/action` through a side door that bypasses the edge: direct requests have no
+trusted `x-settle-user-id` and intentionally fail closed. Local tests inject the trusted header only
+to exercise this boundary; production application code must not manufacture it.
 
 ```bash
 npm test
