@@ -33,7 +33,9 @@ h1 { margin: 0 0 4px; font-size: 1.5rem; }
   text-decoration: none;
 }
 .btn:disabled { opacity: .6; cursor: progress; }
+.btn.secondary { margin-top: 10px; background: #2b3441; }
 .price { font-weight: 400; opacity: .85; margin-left: 6px; }
+.quote-detail { margin: 10px 0 0; color: #aeb8c5; font-size: .85rem; }
 .chip {
   display: inline-block;
   margin: 16px 0 0;

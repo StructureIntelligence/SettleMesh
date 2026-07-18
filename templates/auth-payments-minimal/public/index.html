@@ -17,10 +17,13 @@
       <a class="btn" href="/__settle/login">Sign in with SettleMesh</a>
     </section>
 
-    <!-- Logged-in: the charge branch. -->
+    <!-- Logged-in: the charge branch. Live quote only — no assumed price. -->
     <section id="app" hidden>
-      <button id="run" class="btn"><span id="runlabel">Run paid action</span> <span id="price" class="price"></span></button>
-      <p id="spent" class="chip" hidden>⬡ <span id="spentval">0</span> Aev spent this session</p>
+      <button id="run" class="btn" disabled><span id="runlabel">Run paid action</span> <span id="price" class="price"></span></button>
+      <p id="quotedetail" class="quote-detail" hidden></p>
+      <p id="quoteerr" class="err" hidden></p>
+      <button id="retryquote" class="btn secondary" type="button" hidden>Retry quote</button>
+      <p id="spent" class="chip" hidden>⬡ <span id="spentval">0</span> Aev spent this session (captured only)</p>
       <pre id="out" class="out" hidden></pre>
       <p id="err" class="err" hidden></p>
     </section>
