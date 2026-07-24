@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // TODO: set this to the capability/tool ID you want to meter. SettleMesh exposes
 // a catalog of capabilities; pick the one that matches (e.g. a text-rewrite /
 // LLM helper) and put its ID here or in the SETTLEMESH_POLISH_CAPABILITY env var.
-// The agent guide at https://settlemesh.io/agent.md lists available capability
+// The agent guide at https://www.settlemesh.io/agent.md lists available capability
 // IDs and their exact input contracts — confirm the input shape there before
 // going live. Until you set this, the route returns a local fallback so the demo
 // still runs end-to-end without charging anyone.
@@ -43,9 +43,15 @@ export async function POST(req: Request) {
 
   // Bill the end user: forward their SettleMesh session as the payer.
   const payerToken = extractPayerToken(req);
+  if (!payerToken) {
+    return Response.json(
+      { error: "login_required", login: "/__settle/login" },
+      { status: 401 }
+    );
+  }
   try {
     // NOTE: confirm the exact `input` field names for your chosen capability in
-    // https://settlemesh.io/agent.md — they vary per tool.
+    // https://www.settlemesh.io/agent.md — they vary per tool.
     const result = await callCapability<{ output?: string; text?: string }>(
       POLISH_CAPABILITY,
       { text, instruction: "Tidy and clarify this snippet; keep its meaning." },

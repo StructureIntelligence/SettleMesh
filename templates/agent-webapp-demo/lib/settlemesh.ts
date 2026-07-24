@@ -39,13 +39,23 @@ export async function currentSettleUser(): Promise<SettleUser | null> {
 // 2. Database — managed SQLite. Server-side only (uses the server key).
 // ---------------------------------------------------------------------------
 
-export type DbResult = {
+export type DbPayload = {
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+  rows_affected?: number;
+  provider?: string;
+  duration_ms?: number;
+  raw?: unknown;
+  truncated?: boolean;
+};
+
+export type DbResult<T = DbPayload> = {
   status: number;
-  payload: unknown;
+  payload: T | null;
   error?: string;
 };
 
-export async function dbQuery(sql: string, params: unknown[] = []): Promise<DbResult> {
+export async function dbQuery<T = DbPayload>(sql: string, args: unknown[] = []): Promise<DbResult<T>> {
   const projectId = process.env.SETTLEMESH_PROJECT_ID;
   const serverKey = process.env.SETTLEMESH_PROJECT_SERVER_KEY;
   if (!projectId || !serverKey) {
@@ -64,25 +74,49 @@ export async function dbQuery(sql: string, params: unknown[] = []): Promise<DbRe
         authorization: `Bearer ${serverKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ sql, params }),
+      body: JSON.stringify({ sql, args }),
     }
   );
   const text = await res.text();
-  let payload: unknown = text;
+  let envelope: unknown = text;
   try {
-    payload = text ? JSON.parse(text) : null;
+    envelope = text ? JSON.parse(text) : null;
   } catch {}
-  return { status: res.status, payload };
+  if (!res.ok) {
+    return { status: res.status, payload: null, error: apiErrorMessage(envelope, text) };
+  }
+  if (!isRecord(envelope) || envelope.success !== true || !("data" in envelope)) {
+    return {
+      status: res.status,
+      payload: null,
+      error: "database response did not match the { success, data } contract",
+    };
+  }
+  return { status: res.status, payload: envelope.data as T };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function apiErrorMessage(payload: unknown, fallback: string): string {
+  if (isRecord(payload)) {
+    const error = payload.error;
+    if (typeof error === "string" && error.trim()) return error;
+    if (isRecord(error) && typeof error.message === "string" && error.message.trim()) {
+      return error.message;
+    }
+  }
+  return fallback.trim() || "database request failed";
 }
 
 // ---------------------------------------------------------------------------
 // 3. Metered capability — one paid tool call, billed to the end user.
 // ---------------------------------------------------------------------------
 //
-// `payerToken` carries the end user's SettleMesh session so the charge lands on
-// THEM, not on you (the developer). Extract it from the incoming request with
-// extractPayerToken() below and pass it through. Omit it and the call bills the
-// app owner instead.
+// `payerToken` carries the end user's SettleMesh session candidate. The platform is the final
+// verifier. This starter refuses to call without it so a missing credential can never fall back
+// to billing the app owner.
 
 export type InvokeOptions = {
   timeoutMs?: number;
@@ -100,6 +134,9 @@ export async function callCapability<T = unknown>(
       "SETTLEMESH_APP_API_KEY is not configured. Deploy with `settlemesh deploy`."
     );
   }
+  if (!options.payerToken) {
+    throw new Error("a payer credential is required; owner-billed fallback is disabled");
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 60000);
@@ -108,8 +145,8 @@ export async function callCapability<T = unknown>(
     authorization: "Bearer " + apiKey,
     "content-type": "application/json",
   };
-  // End-user-pays: forward the payer's session token so the charge lands on them.
-  if (options.payerToken) headers["X-Settle-Payer"] = options.payerToken;
+  // End-user-pays: the platform must authenticate this credential and reject an invalid payer.
+  headers["X-Settle-Payer"] = options.payerToken;
 
   try {
     const res = await fetch(
